@@ -19,7 +19,9 @@ export function ProjectTabs({ basePath, showSettings }: { basePath: string; show
     { href: basePath, label: "Plan" },
     { href: `${basePath}/board`, label: "Board" },
     { href: `${basePath}/list`, label: "List" },
+    { href: `${basePath}/timeline`, label: "Timeline" },
     { href: `${basePath}/overview`, label: "Overview" },
+    { href: `${basePath}/activity`, label: "Activity" },
     ...(showSettings ? [{ href: `${basePath}/settings`, label: "Settings" }] : []),
   ];
 

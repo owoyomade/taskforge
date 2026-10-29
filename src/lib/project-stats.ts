@@ -49,3 +49,27 @@ export function summarizeProject(
       .sort(byDueDate),
   };
 }
+
+type WorkloadTask = { columnId: string; dueDate: string | null; assignees: { id: string; name: string }[] };
+
+export type Workload = { id: string; name: string; open: number; overdue: number }[];
+
+/**
+ * Open tasks per person, busiest first, with an "Unassigned" row when
+ * some open work has nobody on it. Tasks in done columns don't count.
+ */
+export function workloadByPerson(tasks: WorkloadTask[], doneColumnIds: Set<string>, today: string): Workload {
+  const rows = new Map<string, { id: string; name: string; open: number; overdue: number }>();
+  for (const task of tasks) {
+    if (doneColumnIds.has(task.columnId)) continue;
+    const overdue = task.dueDate !== null && task.dueDate < today ? 1 : 0;
+    const people = task.assignees.length > 0 ? task.assignees : [{ id: "", name: "Unassigned" }];
+    for (const person of people) {
+      const row = rows.get(person.id) ?? { id: person.id, name: person.name, open: 0, overdue: 0 };
+      row.open += 1;
+      row.overdue += overdue;
+      rows.set(person.id, row);
+    }
+  }
+  return [...rows.values()].sort((a, b) => (a.id === "" ? 1 : b.id === "" ? -1 : b.open - a.open || a.name.localeCompare(b.name)));
+}

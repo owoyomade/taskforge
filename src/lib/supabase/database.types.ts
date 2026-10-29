@@ -55,6 +55,32 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"audit_events": {
+                  Row: {
+                    "actor_id": string | null,"created_at": string,"event_type": string,"id": number,"project_id": string | null,"summary": NonNullable<Json>,"task_id": string | null,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "actor_id"?: string | null,"created_at"?: string,"event_type": string,"id"?: never,"project_id"?: string | null,"summary"?: NonNullable<Json>,"task_id"?: string | null,"workspace_id": string
+                  }
+                  Update: {
+                    "actor_id"?: string | null,"created_at"?: string,"event_type"?: string,"id"?: never,"project_id"?: string | null,"summary"?: NonNullable<Json>,"task_id"?: string | null,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "audit_events_actor_id_fkey"
+      columns: ["actor_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "audit_events_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"board_columns": {
                   Row: {
                     "created_at": string,"id": string,"is_done": boolean,"name": string,"position": number,"project_id": string,"updated_at": string,"workspace_id": string
@@ -273,6 +299,64 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "workspace_members"
       referencedColumns: ["workspace_id","user_id"]
+    }
+                  ]
+                },"notification_preferences": {
+                  Row: {
+                    "assigned": boolean,"commented": boolean,"mentioned": boolean,"updated_at": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "assigned"?: boolean,"commented"?: boolean,"mentioned"?: boolean,"updated_at"?: string,"user_id": string
+                  }
+                  Update: {
+                    "assigned"?: boolean,"commented"?: boolean,"mentioned"?: boolean,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "notification_preferences_user_id_fkey"
+      columns: ["user_id"]
+isOneToOne: true
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"notifications": {
+                  Row: {
+                    "actor_id": string | null,"comment_id": string | null,"created_at": string,"dedupe_key": string,"id": string,"project_id": string,"read_at": string | null,"recipient_id": string,"task_id": string,"task_title": string,"type": Database["public"]['Enums']["notification_type"],"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "actor_id"?: string | null,"comment_id"?: string | null,"created_at"?: string,"dedupe_key": string,"id"?: string,"project_id": string,"read_at"?: string | null,"recipient_id": string,"task_id": string,"task_title": string,"type": Database["public"]['Enums']["notification_type"],"workspace_id": string
+                  }
+                  Update: {
+                    "actor_id"?: string | null,"comment_id"?: string | null,"created_at"?: string,"dedupe_key"?: string,"id"?: string,"project_id"?: string,"read_at"?: string | null,"recipient_id"?: string,"task_id"?: string,"task_title"?: string,"type"?: Database["public"]['Enums']["notification_type"],"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "notifications_actor_id_fkey"
+      columns: ["actor_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "notifications_project_id_workspace_id_fkey"
+      columns: ["project_id","workspace_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["id","workspace_id"]
+    },{
+      foreignKeyName: "notifications_recipient_id_fkey"
+      columns: ["recipient_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "notifications_task_id_project_id_fkey"
+      columns: ["task_id","project_id"]
+isOneToOne: false
+      referencedRelation: "tasks"
+      referencedColumns: ["id","project_id"]
     }
                   ]
                 },"profiles": {
@@ -656,8 +740,17 @@ isOneToOne: false
               "expires_at": string,"invitation_id": string,"inviter_name": string,"role": Database["public"]['Enums']["workspace_role"],"workspace_name": string
             }[]
                            },
+"notify":
+{ Args: { "dedupe": string,"kind": Database["public"]['Enums']["notification_type"],"recipient": string,"target_comment": string,"target_task": string }; Returns: undefined
+                           },
 "project_access":
 { Args: { "target_project": string }; Returns: string
+                           },
+"project_access_for":
+{ Args: { "target_project": string,"target_user": string }; Returns: string
+                           },
+"record_audit":
+{ Args: { "details": Json,"event": string,"target_project": string,"target_task": string,"target_workspace": string }; Returns: undefined
                            },
 "respond_to_invitation":
 { Args: { "accept": boolean,"target_invitation": string }; Returns: string
@@ -673,7 +766,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "project_status": "planned"|"active"|"on_hold"|"completed","project_visibility": "workspace"|"private","task_priority": "none"|"low"|"medium"|"high"|"urgent","workspace_role": "owner"|"admin"|"member"|"viewer"
+            "notification_type": "assigned"|"mentioned"|"commented","project_status": "planned"|"active"|"on_hold"|"completed","project_visibility": "workspace"|"private","task_priority": "none"|"low"|"medium"|"high"|"urgent","workspace_role": "owner"|"admin"|"member"|"viewer"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -793,7 +886,7 @@ export const Constants = {
           }
         },"public": {
           Enums: {
-            "project_status": ["planned", "active", "on_hold", "completed"],"project_visibility": ["workspace", "private"],"task_priority": ["none", "low", "medium", "high", "urgent"],"workspace_role": ["owner", "admin", "member", "viewer"]
+            "notification_type": ["assigned", "mentioned", "commented"],"project_status": ["planned", "active", "on_hold", "completed"],"project_visibility": ["workspace", "private"],"task_priority": ["none", "low", "medium", "high", "urgent"],"workspace_role": ["owner", "admin", "member", "viewer"]
           }
         }
 } as const

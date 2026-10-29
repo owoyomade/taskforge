@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { HomeIcon, MenuIcon, PlusIcon, SettingsIcon } from "lucide-react";
+import { ActivityIcon, HomeIcon, InboxIcon, MenuIcon, PlusIcon, SettingsIcon } from "lucide-react";
 
 import { Brand } from "@/components/brand";
 import { ColorDot } from "@/components/color-picker";
@@ -19,6 +19,7 @@ type AppSidebarProps = {
   workspaces: WorkspaceSummary[];
   profile: ProfileView;
   projects: ProjectSummary[];
+  unreadCount: number;
 };
 
 /**
@@ -55,11 +56,13 @@ export function AppSidebar(props: AppSidebarProps) {
 const NAV_LINK =
   "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-sidebar-foreground/70 outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-3 focus-visible:ring-sidebar-ring/60 aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-semibold aria-[current=page]:text-sidebar-accent-foreground";
 
-function SidebarContents({ workspace, workspaces, profile, projects }: AppSidebarProps) {
+function SidebarContents({ workspace, workspaces, profile, projects, unreadCount }: AppSidebarProps) {
   const pathname = usePathname();
   const base = `/w/${workspace.slug}`;
   const links = [
     { href: base, label: "Home", icon: HomeIcon },
+    { href: `${base}/inbox`, label: "Inbox", icon: InboxIcon, badge: unreadCount },
+    { href: `${base}/activity`, label: "Activity", icon: ActivityIcon },
     { href: `${base}/settings`, label: "Team and settings", icon: SettingsIcon },
   ];
 
@@ -76,10 +79,16 @@ function SidebarContents({ workspace, workspaces, profile, projects }: AppSideba
         </Link>
       ) : null}
       <nav aria-label="Workspace" className="grid gap-0.5">
-        {links.map(({ href, label, icon: Icon }) => (
+        {links.map(({ href, label, icon: Icon, badge }) => (
           <Link key={href} href={href} aria-current={pathname === href ? "page" : undefined} className={NAV_LINK}>
             <Icon className="size-4" aria-hidden="true" />
-            {label}
+            <span className="flex-1">{label}</span>
+            {badge ? (
+              <span className="rounded-full bg-sidebar-primary px-2 py-0.5 text-xs font-bold text-sidebar-primary-foreground">
+                {badge > 99 ? "99+" : badge}
+                <span className="sr-only"> unread</span>
+              </span>
+            ) : null}
           </Link>
         ))}
       </nav>

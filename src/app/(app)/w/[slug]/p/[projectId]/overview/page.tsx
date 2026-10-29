@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { ActivityFeed } from "@/components/activity/activity-feed";
+import { listActivity } from "@/lib/activity";
 import { formatDate } from "@/lib/dates";
+import { phaseStates } from "@/lib/phase-progress";
 import { PRIORITY_LABELS } from "@/lib/project-constants";
-import { summarizeProject } from "@/lib/project-stats";
-import { getProjectForUser, listColumns, listTaskCards } from "@/lib/projects";
+import { summarizeProject, workloadByPerson } from "@/lib/project-stats";
+import { getProjectForUser, listColumns, listPhases, listTaskCards } from "@/lib/projects";
 import { dateRange, parseTaskFilters } from "@/lib/task-filters";
 import { getWorkspaceForUser } from "@/lib/workspaces";
 
@@ -16,8 +19,16 @@ export default async function ProjectOverviewPage({ params }: PageProps<"/w/[slu
   const project = await getProjectForUser(workspace.id, projectId);
   const columns = await listColumns(project.id);
   // The overview always covers every task, so it ignores board filters.
-  const tasks = await listTaskCards(project, columns, parseTaskFilters({}));
+  const [tasks, phasesByProject, recent] = await Promise.all([
+    listTaskCards(project, columns, parseTaskFilters({})),
+    listPhases(workspace.id, project.id),
+    listActivity(workspace.id, { projectId: project.id, limit: 6 }),
+  ]);
   const { today, until } = dateRange(7);
+  const phases = phaseStates(phasesByProject.get(project.id) ?? [], today);
+  const doneColumnIds = new Set(columns.filter((column) => column.isDone).map((column) => column.id));
+  const workload = workloadByPerson(tasks, doneColumnIds, today);
+  const maxWorkload = Math.max(1, ...workload.map((row) => row.open));
   const stats = summarizeProject(columns, tasks, today, until);
   const basePath = `/w/${workspace.slug}/p/${project.id}`;
   const maxColumnCount = Math.max(1, ...stats.byColumn.map((column) => column.count));
@@ -72,6 +83,71 @@ export default async function ProjectOverviewPage({ params }: PageProps<"/w/[slu
           <DeadlineList title="Due in the next 7 days" tasks={stats.dueThisWeek} basePath={basePath} empty="Nothing due this week." />
         </section>
       </div>
+
+      <div className="grid gap-8 lg:grid-cols-2">
+        <section aria-labelledby="phases-heading" className="grid content-start gap-3">
+          <h2 id="phases-heading" className="text-lg font-semibold">
+            Phases
+          </h2>
+          {phases.length === 0 ? (
+            <p className="text-sm text-muted-foreground">This project has no phases yet. Add them from the Plan tab.</p>
+          ) : (
+            <ul className="grid gap-3">
+              {phases.map((phase) => (
+                <li key={phase.id} className="grid gap-1">
+                  <div className="flex items-baseline justify-between gap-3 text-sm">
+                    <Link href={`${basePath}#phase-${phase.id}`} className="font-medium underline-offset-4 hover:underline">
+                      {phase.name}
+                    </Link>
+                    <span className={phase.isOverdue ? "font-medium text-ember" : "text-muted-foreground"}>
+                      {phase.percent === null ? "No tasks" : `${phase.percent}%`}
+                      {phase.targetDate ? `, ${phase.isOverdue ? "was due" : "due"} ${formatDate(phase.targetDate)}` : ""}
+                    </span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                    <div className="h-full rounded-full bg-leaf" style={{ width: `${phase.percent ?? 0}%` }} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section aria-labelledby="workload-heading" className="grid content-start gap-3">
+          <h2 id="workload-heading" className="text-lg font-semibold">
+            Who&apos;s doing what
+          </h2>
+          {workload.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No open tasks.</p>
+          ) : (
+            <ul className="grid gap-2">
+              {workload.map((row) => (
+                <li key={row.id || "unassigned"} className="grid grid-cols-[8rem_1fr_auto] items-center gap-3 text-sm">
+                  <span className={row.id ? "truncate" : "truncate text-muted-foreground"}>{row.name}</span>
+                  <span className="h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                    <span className="block h-full rounded-full bg-primary" style={{ width: `${(row.open / maxWorkload) * 100}%` }} />
+                  </span>
+                  <span className="text-right tabular-nums text-muted-foreground">
+                    {row.open} open{row.overdue > 0 ? <span className="text-ember">, {row.overdue} overdue</span> : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      <section aria-labelledby="recent-heading" className="grid max-w-3xl gap-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 id="recent-heading" className="text-lg font-semibold">
+            Recent activity
+          </h2>
+          <Link href={`${basePath}/activity`} className="text-sm text-muted-foreground underline-offset-4 hover:underline">
+            See all
+          </Link>
+        </div>
+        <ActivityFeed items={recent} emptyText="Nothing has happened yet." />
+      </section>
     </div>
   );
 }

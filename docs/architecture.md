@@ -97,7 +97,8 @@ bucket (Phase 1); `projects`, `project_members`, `board_columns`, `tasks`
 `checklists`, `checklist_items` (Phase 2); `workspace_invitations`,
 `comments`, `comment_mentions`, `attachments` and the `attachments` bucket
 (Phase 3); `milestones` (shown as "phases"), `milestone_tasks` and
-`project_templates` (Phase 4a). The rest is the plan for later
+`project_templates` (Phase 4a); `audit_events`, `notifications` and
+`notification_preferences` (Phase 4b). The rest is the plan for later
 phases and may change as each phase is designed in detail.
 
 ```mermaid
@@ -188,7 +189,10 @@ promote the new owner first, then demote the old one, in one transaction.
 | Template library (30), new project wizard, save project as template | 4a | Built |
 | Phases with progress from real tasks, journey strip, Plan view | 4a | Built |
 | Home page with "Do next" | 4a | Built |
-| Notifications, activity and audit history, timeline view, dashboards | 4b | Planned |
+| In-app notifications (assigned, mentioned, commented) with inbox, unread badge and preferences | 4b | Built |
+| Activity history per project and per workspace, CSV export for admins | 4b | Built |
+| Timeline view; overview widgets for phases, workload and recent activity | 4b | Built |
+| Email notifications and due-date reminders | Later | Need an email provider and a scheduled job |
 | Milestones, dashboards, notifications, audit history | 4 | Planned |
 | Security review, performance, accessibility audit, deployment, monitoring | 5 | Planned |
 
@@ -210,8 +214,29 @@ promote the new owner first, then demote the old one, in one transaction.
 | Invitation spam | 20 invitations per workspace per hour, 100 open at once. |
 | Mention spoofing or pinging outsiders | Mentions are stored as user ids; the server drops mentions of anyone who can't see the project; names are shown from the live member list. |
 | Malicious file uploads | 5 MB limit; type checked from file content against an allow-list (no HTML, SVG or executables); safe file names; private bucket; storage policies check the workspace and project in the path; downloads use 60-second signed URLs that force a download. |
+| Tampering with history | `audit_events` is written only by triggers inside the same transaction as the change; the API has read access only, no insert, update or delete. |
+| Leaking private work through notifications | A notification is only created if the recipient can see the project, and is hidden again if they later lose access. |
+| CSV formula injection in exports | Exported cells that start with `=`, `+`, `-` or `@` are prefixed so spreadsheets treat them as text. |
 | Lost edits from concurrent changes | Version check on task saves; board moves are recomputed on the server from current positions. |
 | Sensitive data in logs | Server logs record error codes and messages only, never form input. |
+
+## Audit history: what's kept and for how long
+
+Recorded: task created, moved, renamed, re-dated, re-prioritised, archived,
+deleted or restored; assignments; comments added (not their text); files
+added or removed (name only); phase and project changes; members joining,
+leaving or changing role; invitations sent, revoked or declined. Each event
+stores who, when, the workspace/project/task ids and a small summary.
+
+Never recorded: passwords, tokens, task descriptions, comment text or file
+contents.
+
+Who can read it: owners and admins see everything in their workspace;
+other members see the history of projects they can currently see.
+
+Retention: events are kept for the life of the workspace and deleted with
+it. Admins can export the latest 5,000 events as CSV beforehand. A
+time-based retention job (for example, keep 12 months) is a Phase 5 item.
 
 ## Free-tier constraints
 

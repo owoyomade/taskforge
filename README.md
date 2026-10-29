@@ -8,10 +8,11 @@ separate.
 Built with Next.js, TypeScript, Tailwind CSS, shadcn/ui and Supabase
 (Postgres, Auth, Storage, Row Level Security).
 
-> **Status:** Phase 4a of 5. Guided planning: 30 project templates, phases
-> shown as a journey, a "Do next" home page and a checklist-style Plan view,
-> on top of boards, tasks, invitations, comments and attachments.
-> Notifications, activity history and a timeline come next. See [docs/architecture.md](docs/architecture.md).
+> **Status:** Phase 4 of 5 complete. Guided planning with 30 templates,
+> phases shown as a journey, a "Do next" home page, Plan, Board, List and
+> Timeline views, an in-app notification inbox, activity history with CSV
+> export, invitations, comments and attachments. Phase 5 (hardening,
+> performance, deployment) comes next. See [docs/architecture.md](docs/architecture.md).
 
 ## Requirements
 

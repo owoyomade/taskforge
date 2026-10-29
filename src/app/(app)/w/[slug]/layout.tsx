@@ -1,4 +1,5 @@
 import { AppSidebar } from "@/components/app-shell/app-sidebar";
+import { countUnreadNotifications } from "@/lib/notifications";
 import { getMyProfile } from "@/lib/profiles";
 import { listProjects } from "@/lib/projects";
 import { getWorkspaceForUser, listMyWorkspaces } from "@/lib/workspaces";
@@ -14,11 +15,20 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
     listMyWorkspaces(),
     getMyProfile(),
   ]);
-  const projects = await listProjects(workspace.id);
+  const [projects, unreadCount] = await Promise.all([
+    listProjects(workspace.id),
+    countUnreadNotifications(workspace.id),
+  ]);
 
   return (
     <div className="flex flex-1 flex-col lg:flex-row">
-      <AppSidebar workspace={workspace} workspaces={workspaces} profile={profile} projects={projects} />
+      <AppSidebar
+        workspace={workspace}
+        workspaces={workspaces}
+        profile={profile}
+        projects={projects}
+        unreadCount={unreadCount}
+      />
       <main className="min-w-0 flex-1 px-4 py-8 sm:px-8 lg:px-12">{children}</main>
     </div>
   );

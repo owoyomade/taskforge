@@ -2,13 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeftIcon } from "lucide-react";
 
+import { NotificationPreferencesForm } from "@/components/notifications/preferences-form";
+import { getNotificationPreferences } from "@/lib/notifications";
 import { getMyProfile } from "@/lib/profiles";
 import { AvatarForm, ChangePasswordForm, ProfileForm } from "./account-forms";
 
 export const metadata: Metadata = { title: "Account settings" };
 
 export default async function AccountPage() {
-  const profile = await getMyProfile();
+  const [profile, preferences] = await Promise.all([getMyProfile(), getNotificationPreferences()]);
 
   return (
     <main className="mx-auto grid w-full max-w-3xl gap-10 px-4 py-8 sm:px-8">
@@ -32,6 +34,13 @@ export default async function AccountPage() {
           Profile
         </h2>
         <ProfileForm profile={profile} />
+      </section>
+
+      <section aria-labelledby="notifications-heading" className="grid gap-4 border-t pt-6">
+        <h2 id="notifications-heading" className="text-lg font-semibold">
+          Notifications
+        </h2>
+        <NotificationPreferencesForm preferences={preferences} />
       </section>
 
       <section aria-labelledby="password-heading" className="grid gap-4 border-t pt-6">

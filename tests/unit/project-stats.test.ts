@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { addDays, dueState, formatDate } from "@/lib/dates";
-import { summarizeProject } from "@/lib/project-stats";
+import { summarizeProject, workloadByPerson } from "@/lib/project-stats";
 import { sortTasks } from "@/lib/task-sort";
 
 const columns = [
@@ -87,5 +87,28 @@ describe("addDays", () => {
     expect(addDays("2026-03-01", -1)).toBe("2026-02-28");
     expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
     expect(addDays("2026-11-03", 0)).toBe("2026-11-03");
+  });
+});
+
+describe("workloadByPerson", () => {
+  it("counts open and overdue work per person, busiest first, unassigned last", () => {
+
+    const ada = { id: "a", name: "Ada" };
+    const ben = { id: "b", name: "Ben" };
+    const result = workloadByPerson(
+      [
+        { columnId: "todo", dueDate: "2026-10-01", assignees: [ada] },
+        { columnId: "todo", dueDate: null, assignees: [ada, ben] },
+        { columnId: "done", dueDate: "2026-10-01", assignees: [ben] },
+        { columnId: "todo", dueDate: null, assignees: [] },
+      ],
+      new Set(["done"]),
+      "2026-10-29",
+    );
+    expect(result).toEqual([
+      { id: "a", name: "Ada", open: 2, overdue: 1 },
+      { id: "b", name: "Ben", open: 1, overdue: 0 },
+      { id: "", name: "Unassigned", open: 1, overdue: 0 },
+    ]);
   });
 });
