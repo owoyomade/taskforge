@@ -1,0 +1,63 @@
+import { expect, type Page } from "@playwright/test";
+
+import { E2E_BASE_URL } from "../../playwright.config";
+
+// Local Supabase delivers auth emails to Mailpit instead of sending them.
+// Its API lets tests open the confirmation or reset link like a real user.
+const MAILPIT_URL = "http://127.0.0.1:54324";
+
+export const SEED_PASSWORD = "Password123";
+
+/** A unique address per test run so tests never collide with each other. */
+export function uniqueEmail(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@test.local`;
+}
+
+/** Waits for the newest email sent to `to` and returns the first auth link in it. */
+export async function latestAuthLink(to: string): Promise<string> {
+  let link: string | undefined;
+
+  await expect
+    .poll(
+      async () => {
+        const search = await fetch(`${MAILPIT_URL}/api/v1/search?query=${encodeURIComponent(`to:"${to}"`)}`);
+        const { messages } = (await search.json()) as { messages: { ID: string }[] };
+        if (!messages.length) return undefined;
+
+        const message = await fetch(`${MAILPIT_URL}/api/v1/message/${messages[0].ID}`);
+        const { HTML } = (await message.json()) as { HTML: string };
+        const href = HTML.match(/href="([^"]*\/auth\/confirm[^"]*)"/)?.[1]?.replaceAll("&amp;", "&");
+        // Emails point at the Site URL (port 3000); send the test to its own server instead.
+        if (href) {
+          const emailed = new URL(href);
+          link = new URL(emailed.pathname + emailed.search, E2E_BASE_URL).toString();
+        }
+        return link;
+      },
+      { message: `waiting for an auth email to ${to}`, timeout: 15_000 },
+    )
+    .toBeTruthy();
+
+  return link as string;
+}
+
+export async function signIn(page: Page, email: string, password = SEED_PASSWORD) {
+  await page.goto("/sign-in");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.waitForURL(/\/w\//);
+}
+
+/** Signs up, confirms the email through Mailpit, and lands on onboarding. */
+export async function signUpAndConfirm(page: Page, name: string, email: string, password: string) {
+  await page.goto("/sign-up");
+  await page.getByLabel("Your name").fill(name);
+  await page.getByLabel("Work email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+
+  await page.goto(await latestAuthLink(email));
+  await expect(page).toHaveURL(/\/onboarding$/);
+}

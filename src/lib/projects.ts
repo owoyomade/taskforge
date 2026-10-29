@@ -1,0 +1,444 @@
+import "server-only";
+
+import { notFound } from "next/navigation";
+import { cache } from "react";
+import { z } from "zod";
+
+import {
+  asColor,
+  type Color,
+  type ProjectStatus,
+  type ProjectVisibility,
+  type TaskPriority,
+} from "@/lib/project-constants";
+import { createClient } from "@/lib/supabase/server";
+import { dateRange, escapeLikePattern, type TaskFilters } from "@/lib/task-filters";
+import { listWorkspaceMembers, type WorkspaceMember } from "@/lib/workspaces";
+
+export type ProjectAccess = "manage" | "edit" | "view";
+
+export type ProjectSummary = {
+  id: string;
+  name: string;
+  description: string;
+  color: Color;
+  status: ProjectStatus;
+  visibility: ProjectVisibility;
+  archivedAt: string | null;
+  startDate: string | null;
+  targetDate: string | null;
+  ownerId: string | null;
+};
+
+export type ProjectDetail = ProjectSummary & { workspaceId: string; access: ProjectAccess };
+
+export type BoardColumn = { id: string; name: string; position: number; isDone: boolean };
+
+export type Person = { id: string; name: string; email: string; avatarUrl: string | null };
+
+export type LabelView = { id: string; name: string; color: Color };
+
+export type TaskCard = {
+  id: string;
+  title: string;
+  columnId: string;
+  position: number;
+  priority: TaskPriority;
+  startDate: string | null;
+  dueDate: string | null;
+  updatedAt: string;
+  assignees: Person[];
+  labels: LabelView[];
+  subtasks: { total: number; done: number };
+  checklist: { total: number; done: number };
+};
+
+export type TaskDetail = TaskCard & {
+  description: string;
+  version: number;
+  createdAt: string;
+  createdBy: Person | null;
+  subtaskItems: { id: string; title: string; completed: boolean }[];
+  checklists: { id: string; title: string; items: { id: string; content: string; isDone: boolean }[] }[];
+};
+
+export type RemovedTask = { id: string; title: string; archivedAt: string | null; deletedAt: string | null };
+
+const PROJECT_FIELDS =
+  "id, workspace_id, name, description, color, status, visibility, archived_at, start_date, target_date, owner_id" as const;
+
+type ProjectRow = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string;
+  color: string;
+  status: ProjectStatus;
+  visibility: ProjectVisibility;
+  archived_at: string | null;
+  start_date: string | null;
+  target_date: string | null;
+  owner_id: string | null;
+};
+
+function toProjectSummary(row: ProjectRow): ProjectSummary {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    color: asColor(row.color),
+    status: row.status,
+    visibility: row.visibility,
+    archivedAt: row.archived_at,
+    startDate: row.start_date,
+    targetDate: row.target_date,
+    ownerId: row.owner_id,
+  };
+}
+
+function toPerson(member: WorkspaceMember): Person {
+  return { id: member.userId, name: member.fullName || member.email, email: member.email, avatarUrl: member.avatarUrl };
+}
+
+/** Projects in a workspace that the user can see (RLS hides the rest). */
+export const listProjects = cache(
+  async (workspaceId: string, { archived = false } = {}): Promise<ProjectSummary[]> => {
+    const supabase = await createClient();
+    let query = supabase.from("projects").select(PROJECT_FIELDS).eq("workspace_id", workspaceId);
+    query = archived ? query.not("archived_at", "is", null) : query.is("archived_at", null);
+
+    const { data, error } = await query.order("name");
+    if (error) {
+      throw new Error("Could not load projects.");
+    }
+    return data.map(toProjectSummary);
+  },
+);
+
+/** Open and finished top-level task counts per project, for project cards. */
+export async function countTasksByProject(
+  workspaceId: string,
+): Promise<Map<string, { open: number; done: number; overdue: number }>> {
+  const supabase = await createClient();
+  const [{ data: tasks, error: taskError }, { data: columns, error: columnError }] = await Promise.all([
+    supabase
+      .from("tasks")
+      .select("project_id, column_id, due_date")
+      .eq("workspace_id", workspaceId)
+      .is("parent_task_id", null)
+      .is("archived_at", null)
+      .is("deleted_at", null),
+    supabase.from("board_columns").select("id, is_done").eq("workspace_id", workspaceId),
+  ]);
+  if (taskError || columnError) {
+    throw new Error("Could not load task counts.");
+  }
+
+  const doneColumns = new Set(columns.filter((column) => column.is_done).map((column) => column.id));
+  const { today } = dateRange(0);
+  const counts = new Map<string, { open: number; done: number; overdue: number }>();
+
+  for (const task of tasks) {
+    const entry = counts.get(task.project_id) ?? { open: 0, done: 0, overdue: 0 };
+    if (task.column_id && doneColumns.has(task.column_id)) {
+      entry.done += 1;
+    } else {
+      entry.open += 1;
+      if (task.due_date && task.due_date < today) entry.overdue += 1;
+    }
+    counts.set(task.project_id, entry);
+  }
+  return counts;
+}
+
+/**
+ * The project at this URL with the user's access level, or a 404.
+ * As with workspaces, "no access" and "doesn't exist" look the same.
+ */
+export const getProjectForUser = cache(async (workspaceId: string, projectId: string): Promise<ProjectDetail> => {
+  if (!z.uuid().safeParse(projectId).success) {
+    notFound();
+  }
+
+  const supabase = await createClient();
+  const [{ data: project }, { data: access }] = await Promise.all([
+    supabase.from("projects").select(PROJECT_FIELDS).eq("id", projectId).eq("workspace_id", workspaceId).maybeSingle(),
+    supabase.rpc("project_access", { target_project: projectId }),
+  ]);
+
+  if (!project || (access !== "manage" && access !== "edit" && access !== "view")) {
+    notFound();
+  }
+
+  return { ...toProjectSummary(project), workspaceId: project.workspace_id, access };
+});
+
+export const listColumns = cache(async (projectId: string): Promise<BoardColumn[]> => {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("board_columns")
+    .select("id, name, position, is_done")
+    .eq("project_id", projectId)
+    .order("position");
+  if (error) {
+    throw new Error("Could not load the board.");
+  }
+  return data.map((column) => ({ id: column.id, name: column.name, position: column.position, isDone: column.is_done }));
+});
+
+export const listLabels = cache(async (workspaceId: string): Promise<LabelView[]> => {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("labels")
+    .select("id, name, color")
+    .eq("workspace_id", workspaceId)
+    .order("name");
+  if (error) {
+    throw new Error("Could not load labels.");
+  }
+  return data.map((label) => ({ id: label.id, name: label.name, color: asColor(label.color) }));
+});
+
+/**
+ * Everyone who could be assigned to this project's tasks: non-viewers who
+ * can see the project. For a private project that's its members, its owner
+ * and workspace owners/admins.
+ */
+export async function listAssignablePeople(project: ProjectDetail): Promise<Person[]> {
+  const members = await listWorkspaceMembers(project.workspaceId);
+  const nonViewers = members.filter((member) => member.role !== "viewer");
+
+  if (project.visibility === "workspace") {
+    return nonViewers.map(toPerson);
+  }
+
+  const projectMemberIds = new Set(await listProjectMemberIds(project.id));
+  return nonViewers
+    .filter(
+      (member) =>
+        member.role === "owner" ||
+        member.role === "admin" ||
+        member.userId === project.ownerId ||
+        projectMemberIds.has(member.userId),
+    )
+    .map(toPerson);
+}
+
+export async function listProjectMemberIds(projectId: string): Promise<string[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("project_members").select("user_id").eq("project_id", projectId);
+  if (error) {
+    throw new Error("Could not load project members.");
+  }
+  return data.map((row) => row.user_id);
+}
+
+/**
+ * Loads the board's tasks with their assignees, labels and progress,
+ * applying the filters in the database where possible.
+ *
+ * Related rows are fetched per project (not per task id) so the queries
+ * stay small and fixed in number however many tasks there are.
+ */
+export async function listTaskCards(
+  project: ProjectDetail,
+  columns: BoardColumn[],
+  filters: TaskFilters,
+): Promise<TaskCard[]> {
+  const supabase = await createClient();
+
+  const [assigneeRows, labelRows, subtaskRows, checklistRows, people, labels] = await Promise.all([
+    supabase.from("task_assignees").select("task_id, user_id").eq("project_id", project.id),
+    supabase.from("task_labels").select("task_id, label_id").eq("project_id", project.id),
+    supabase
+      .from("tasks")
+      .select("parent_task_id, completed_at")
+      .eq("project_id", project.id)
+      .not("parent_task_id", "is", null)
+      .is("deleted_at", null),
+    supabase.from("checklist_items").select("task_id, is_done").eq("project_id", project.id),
+    listWorkspaceMembers(project.workspaceId),
+    listLabels(project.workspaceId),
+  ]);
+
+  if (assigneeRows.error || labelRows.error || subtaskRows.error || checklistRows.error) {
+    throw new Error("Could not load task details.");
+  }
+
+  let query = supabase
+    .from("tasks")
+    .select("id, title, column_id, position, priority, start_date, due_date, updated_at")
+    .eq("project_id", project.id)
+    .is("parent_task_id", null)
+    .is("archived_at", null)
+    .is("deleted_at", null);
+
+  const { today, until } = dateRange(7);
+  if (filters.q) query = query.ilike("title", `%${escapeLikePattern(filters.q)}%`);
+  if (filters.priority) query = query.eq("priority", filters.priority);
+  if (filters.due === "overdue") query = query.lt("due_date", today);
+  if (filters.due === "week") query = query.gte("due_date", today).lte("due_date", until);
+  if (filters.due === "none") query = query.is("due_date", null);
+
+  const { data: rows, error } = await query.order("position");
+  if (error) {
+    throw new Error("Could not load tasks.");
+  }
+
+  const peopleById = new Map(people.map((member) => [member.userId, toPerson(member)]));
+  const labelsById = new Map(labels.map((label) => [label.id, label]));
+  const doneColumns = new Set(columns.filter((column) => column.isDone).map((column) => column.id));
+
+  const assigneesByTask = groupBy(assigneeRows.data, (row) => row.task_id);
+  const labelsByTask = groupBy(labelRows.data, (row) => row.task_id);
+  const subtasksByTask = groupBy(subtaskRows.data, (row) => row.parent_task_id ?? "");
+  const checklistByTask = groupBy(checklistRows.data, (row) => row.task_id);
+
+  const cards = rows.flatMap((row): TaskCard[] => {
+    // Every top-level task has a column (enforced by a check constraint).
+    if (!row.column_id) return [];
+    const assigneeIds = (assigneesByTask.get(row.id) ?? []).map((assignee) => assignee.user_id);
+    const subtasks = subtasksByTask.get(row.id) ?? [];
+    const checklist = checklistByTask.get(row.id) ?? [];
+
+    return [
+      {
+        id: row.id,
+        title: row.title,
+        columnId: row.column_id,
+        position: row.position,
+        priority: row.priority,
+        startDate: row.start_date,
+        dueDate: row.due_date,
+        updatedAt: row.updated_at,
+        assignees: assigneeIds.flatMap((id) => peopleById.get(id) ?? []),
+        labels: (labelsByTask.get(row.id) ?? []).flatMap((link) => labelsById.get(link.label_id) ?? []),
+        subtasks: { total: subtasks.length, done: subtasks.filter((subtask) => subtask.completed_at).length },
+        checklist: { total: checklist.length, done: checklist.filter((item) => item.is_done).length },
+      },
+    ];
+  });
+
+  return cards.filter((card) => {
+    // A task in a done column isn't overdue, whatever its date says.
+    if (filters.due === "overdue" && doneColumns.has(card.columnId)) return false;
+    if (filters.assignee === "none" && card.assignees.length > 0) return false;
+    if (filters.assignee && filters.assignee !== "none" && !card.assignees.some((person) => person.id === filters.assignee)) {
+      return false;
+    }
+    if (filters.label && !card.labels.some((label) => label.id === filters.label)) return false;
+    return true;
+  });
+}
+
+/** Full detail for the task drawer, or null if it's gone or not visible. */
+export async function getTaskDetail(
+  project: ProjectDetail,
+  columns: BoardColumn[],
+  taskId: string,
+): Promise<TaskDetail | null> {
+  if (!z.uuid().safeParse(taskId).success) {
+    return null;
+  }
+
+  const supabase = await createClient();
+  const [task, subtasks, checklists, items, assignees, taskLabels, people, labels] = await Promise.all([
+    supabase
+      .from("tasks")
+      .select(
+        "id, title, description, column_id, position, priority, start_date, due_date, updated_at, version, created_at, created_by",
+      )
+      .eq("id", taskId)
+      .eq("project_id", project.id)
+      .is("parent_task_id", null)
+      .is("deleted_at", null)
+      .maybeSingle(),
+    supabase
+      .from("tasks")
+      .select("id, title, completed_at")
+      .eq("parent_task_id", taskId)
+      .is("deleted_at", null)
+      .order("position"),
+    supabase.from("checklists").select("id, title").eq("task_id", taskId).order("position"),
+    supabase.from("checklist_items").select("id, checklist_id, content, is_done").eq("task_id", taskId).order("position"),
+    supabase.from("task_assignees").select("user_id").eq("task_id", taskId),
+    supabase.from("task_labels").select("label_id").eq("task_id", taskId),
+    listWorkspaceMembers(project.workspaceId),
+    listLabels(project.workspaceId),
+  ]);
+
+  if (!task.data || !task.data.column_id) {
+    return null;
+  }
+  if (subtasks.error || checklists.error || items.error || assignees.error || taskLabels.error) {
+    throw new Error("Could not load the task.");
+  }
+
+  const peopleById = new Map(people.map((member) => [member.userId, toPerson(member)]));
+  const labelsById = new Map(labels.map((label) => [label.id, label]));
+  const itemsByChecklist = groupBy(items.data, (item) => item.checklist_id);
+  const row = task.data;
+
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    columnId: row.column_id ?? columns[0]?.id ?? "",
+    position: row.position,
+    priority: row.priority,
+    startDate: row.start_date,
+    dueDate: row.due_date,
+    updatedAt: row.updated_at,
+    version: row.version,
+    createdAt: row.created_at,
+    createdBy: row.created_by ? (peopleById.get(row.created_by) ?? null) : null,
+    assignees: assignees.data.flatMap((assignee) => peopleById.get(assignee.user_id) ?? []),
+    labels: taskLabels.data.flatMap((link) => labelsById.get(link.label_id) ?? []),
+    subtasks: {
+      total: subtasks.data.length,
+      done: subtasks.data.filter((subtask) => subtask.completed_at).length,
+    },
+    checklist: { total: items.data.length, done: items.data.filter((item) => item.is_done).length },
+    subtaskItems: subtasks.data.map((subtask) => ({
+      id: subtask.id,
+      title: subtask.title,
+      completed: Boolean(subtask.completed_at),
+    })),
+    checklists: checklists.data.map((checklist) => ({
+      id: checklist.id,
+      title: checklist.title,
+      items: (itemsByChecklist.get(checklist.id) ?? []).map((item) => ({
+        id: item.id,
+        content: item.content,
+        isDone: item.is_done,
+      })),
+    })),
+  };
+}
+
+/** Archived and deleted tasks, newest first, for restoring from project settings. */
+export async function listRemovedTasks(projectId: string): Promise<RemovedTask[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("id, title, archived_at, deleted_at, updated_at")
+    .eq("project_id", projectId)
+    .is("parent_task_id", null)
+    .or("archived_at.not.is.null,deleted_at.not.is.null")
+    .order("updated_at", { ascending: false })
+    .limit(100);
+  if (error) {
+    throw new Error("Could not load archived tasks.");
+  }
+  return data.map((task) => ({ id: task.id, title: task.title, archivedAt: task.archived_at, deletedAt: task.deleted_at }));
+}
+
+function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const group = groups.get(key(item));
+    if (group) group.push(item);
+    else groups.set(key(item), [item]);
+  }
+  return groups;
+}
