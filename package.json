@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "test:db": "supabase test db",
     "test:e2e": "playwright test",
+    "test:e2e:fresh": "supabase db reset && playwright test",
     "db:start": "supabase start",
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",

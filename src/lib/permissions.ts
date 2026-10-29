@@ -31,3 +31,23 @@ export type WorkspaceCapability = keyof typeof CAPABILITIES;
 export function can(role: WorkspaceRole, capability: WorkspaceCapability): boolean {
   return (CAPABILITIES[capability] as readonly WorkspaceRole[]).includes(role);
 }
+
+/**
+ * Whether `actor` may change or remove a member who currently has `target`.
+ * Mirrors the enforce_membership_rules trigger: only owners touch owners.
+ */
+export function canManageMember(actor: WorkspaceRole, target: WorkspaceRole): boolean {
+  if (actor === "owner") return true;
+  if (actor === "admin") return target !== "owner";
+  return false;
+}
+
+/** The roles `actor` may hand out, most powerful first. */
+export function grantableRoles(actor: WorkspaceRole): WorkspaceRole[] {
+  if (actor === "owner") return ["owner", "admin", "member", "viewer"];
+  if (actor === "admin") return ["admin", "member", "viewer"];
+  return [];
+}
+
+/** Roles an invitation can carry. Ownership is transferred, never invited. */
+export const INVITABLE_ROLES = ["admin", "member", "viewer"] as const satisfies readonly WorkspaceRole[];

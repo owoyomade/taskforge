@@ -4,9 +4,11 @@ import { LockIcon } from "lucide-react";
 
 import { ColorDot } from "@/components/color-picker";
 import { MemberList } from "@/components/member-list";
+import { MyInvitations } from "@/components/members/my-invitations";
 import { NewProjectDialog } from "@/components/projects/new-project-dialog";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/dates";
+import { listMyInvitations } from "@/lib/invitations";
 import { can, ROLE_LABELS } from "@/lib/permissions";
 import { PROJECT_STATUS_LABELS } from "@/lib/project-constants";
 import { countTasksByProject, listProjects } from "@/lib/projects";
@@ -22,10 +24,11 @@ export default async function WorkspaceOverviewPage({ params, searchParams }: Pa
   const { slug } = await params;
   const showArchived = (await searchParams).archived === "1";
   const workspace = await getWorkspaceForUser(slug);
-  const [members, projects, counts] = await Promise.all([
+  const [members, projects, counts, invitations] = await Promise.all([
     listWorkspaceMembers(workspace.id),
     listProjects(workspace.id, { archived: showArchived }),
     countTasksByProject(workspace.id),
+    listMyInvitations(),
   ]);
   const canCreate = workspace.role !== "viewer";
 
@@ -48,6 +51,8 @@ export default async function WorkspaceOverviewPage({ params, searchParams }: Pa
         </div>
         {canCreate && !showArchived ? <NewProjectDialog workspaceId={workspace.id} /> : null}
       </header>
+
+      <MyInvitations invitations={invitations} />
 
       <section aria-labelledby="projects-heading" className="grid gap-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">

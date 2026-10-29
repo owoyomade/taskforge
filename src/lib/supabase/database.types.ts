@@ -23,7 +23,39 @@ export type Database = {
           }
         },"public": {
           Tables: {
-            "board_columns": {
+            "attachments": {
+                  Row: {
+                    "content_type": string,"created_at": string,"file_name": string,"id": string,"project_id": string,"size_bytes": number,"storage_path": string,"task_id": string,"uploaded_by": string | null,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "content_type": string,"created_at"?: string,"file_name": string,"id"?: string,"project_id": string,"size_bytes": number,"storage_path": string,"task_id": string,"uploaded_by"?: string | null,"workspace_id": string
+                  }
+                  Update: {
+                    "content_type"?: string,"created_at"?: string,"file_name"?: string,"id"?: string,"project_id"?: string,"size_bytes"?: number,"storage_path"?: string,"task_id"?: string,"uploaded_by"?: string | null,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "attachments_project_id_workspace_id_fkey"
+      columns: ["project_id","workspace_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["id","workspace_id"]
+    },{
+      foreignKeyName: "attachments_task_id_project_id_fkey"
+      columns: ["task_id","project_id"]
+isOneToOne: false
+      referencedRelation: "tasks"
+      referencedColumns: ["id","project_id"]
+    },{
+      foreignKeyName: "attachments_uploaded_by_fkey"
+      columns: ["uploaded_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"board_columns": {
                   Row: {
                     "created_at": string,"id": string,"is_done": boolean,"name": string,"position": number,"project_id": string,"updated_at": string,"workspace_id": string
                   }
@@ -95,6 +127,70 @@ isOneToOne: false
       referencedColumns: ["id","workspace_id"]
     },{
       foreignKeyName: "checklists_task_id_project_id_fkey"
+      columns: ["task_id","project_id"]
+isOneToOne: false
+      referencedRelation: "tasks"
+      referencedColumns: ["id","project_id"]
+    }
+                  ]
+                },"comment_mentions": {
+                  Row: {
+                    "comment_id": string,"project_id": string,"user_id": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "comment_id": string,"project_id": string,"user_id": string,"workspace_id": string
+                  }
+                  Update: {
+                    "comment_id"?: string,"project_id"?: string,"user_id"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "comment_mentions_comment_id_project_id_fkey"
+      columns: ["comment_id","project_id"]
+isOneToOne: false
+      referencedRelation: "comments"
+      referencedColumns: ["id","project_id"]
+    },{
+      foreignKeyName: "comment_mentions_project_id_workspace_id_fkey"
+      columns: ["project_id","workspace_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["id","workspace_id"]
+    },{
+      foreignKeyName: "comment_mentions_workspace_id_user_id_fkey"
+      columns: ["workspace_id","user_id"]
+isOneToOne: false
+      referencedRelation: "workspace_members"
+      referencedColumns: ["workspace_id","user_id"]
+    }
+                  ]
+                },"comments": {
+                  Row: {
+                    "author_id": string | null,"body": string,"created_at": string,"edited_at": string | null,"id": string,"project_id": string,"task_id": string,"updated_at": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "author_id"?: string | null,"body": string,"created_at"?: string,"edited_at"?: string | null,"id"?: string,"project_id": string,"task_id": string,"updated_at"?: string,"workspace_id": string
+                  }
+                  Update: {
+                    "author_id"?: string | null,"body"?: string,"created_at"?: string,"edited_at"?: string | null,"id"?: string,"project_id"?: string,"task_id"?: string,"updated_at"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "comments_author_id_fkey"
+      columns: ["author_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "comments_project_id_workspace_id_fkey"
+      columns: ["project_id","workspace_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["id","workspace_id"]
+    },{
+      foreignKeyName: "comments_task_id_project_id_fkey"
       columns: ["task_id","project_id"]
 isOneToOne: false
       referencedRelation: "tasks"
@@ -295,6 +391,32 @@ isOneToOne: false
       referencedColumns: ["id","workspace_id"]
     }
                   ]
+                },"workspace_invitations": {
+                  Row: {
+                    "accepted_at": string | null,"created_at": string,"declined_at": string | null,"email": string,"expires_at": string,"id": string,"invited_by": string | null,"revoked_at": string | null,"role": Database["public"]['Enums']["workspace_role"],"token_hash": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "accepted_at"?: string | null,"created_at"?: string,"declined_at"?: string | null,"email": string,"expires_at"?: string,"id"?: string,"invited_by"?: string | null,"revoked_at"?: string | null,"role": Database["public"]['Enums']["workspace_role"],"token_hash": string,"workspace_id": string
+                  }
+                  Update: {
+                    "accepted_at"?: string | null,"created_at"?: string,"declined_at"?: string | null,"email"?: string,"expires_at"?: string,"id"?: string,"invited_by"?: string | null,"revoked_at"?: string | null,"role"?: Database["public"]['Enums']["workspace_role"],"token_hash"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "workspace_invitations_invited_by_fkey"
+      columns: ["invited_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "workspace_invitations_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"workspace_members": {
                   Row: {
                     "created_at": string,"role": Database["public"]['Enums']["workspace_role"],"updated_at": string,"user_id": string,"workspace_id": string
@@ -347,7 +469,10 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "can_edit_project":
+            "can_access_attachment_path":
+{ Args: { "needed": string,"object_name": string }; Returns: boolean
+                           },
+"can_edit_project":
 { Args: { "target_project": string }; Returns: boolean
                            },
 "can_manage_project":
@@ -358,6 +483,11 @@ isOneToOne: false
                            },
 "can_view_project":
 { Args: { "target_project": string }; Returns: boolean
+                           },
+"create_invitation":
+{ Args: { "invite_email": string,"invite_role": Database["public"]['Enums']["workspace_role"],"target_workspace": string }; Returns: {
+              "invitation_id": string,"token": string
+            }[]
                            },
 "create_project":
 { Args: { "project_color": string,"project_description": string,"project_name": string,"project_visibility": Database["public"]['Enums']["project_visibility"],"target_workspace": string }; Returns: {
@@ -397,20 +527,39 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"current_user_email":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
 "duplicate_task":
 { Args: { "source_task": string }; Returns: string
                            },
 "has_workspace_role":
 { Args: { "allowed_roles": (Database["public"]['Enums']["workspace_role"])[],"target_workspace": string }; Returns: boolean
                            },
+"invitation_preview":
+{ Args: { "raw_token": string }; Returns: {
+              "email_hint": string,"invitation_id": string,"inviter_name": string,"role": Database["public"]['Enums']["workspace_role"],"status": string,"workspace_name": string
+            }[]
+                           },
 "is_workspace_member":
 { Args: { "target_workspace": string }; Returns: boolean
+                           },
+"list_my_invitations":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "expires_at": string,"invitation_id": string,"inviter_name": string,"role": Database["public"]['Enums']["workspace_role"],"workspace_name": string
+            }[]
                            },
 "project_access":
 { Args: { "target_project": string }; Returns: string
                            },
+"respond_to_invitation":
+{ Args: { "accept": boolean,"target_invitation": string }; Returns: string
+                           },
 "shares_workspace_with":
 { Args: { "other_user": string }; Returns: boolean
+                           },
+"transfer_ownership":
+{ Args: { "new_owner": string,"target_workspace": string }; Returns: undefined
                            },
 "workspace_role_for":
 { Args: { "target_workspace": string }; Returns: Database["public"]['Enums']["workspace_role"]

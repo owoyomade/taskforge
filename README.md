@@ -6,8 +6,9 @@ boards and tasks, with each team's data kept strictly separate.
 Built with Next.js, TypeScript, Tailwind CSS, shadcn/ui and Supabase
 (Postgres, Auth, Storage, Row Level Security).
 
-> **Status:** Phase 2 of 5. Accounts, workspaces, roles, projects, Kanban
-> boards and tasks work. Invitations, comments and attachments come next. See [docs/architecture.md](docs/architecture.md).
+> **Status:** Phase 3 of 5. Accounts, workspaces, roles, projects, Kanban
+> boards, tasks, invitations, comments with mentions and file attachments
+> work. Milestones, dashboards, notifications and audit history come next. See [docs/architecture.md](docs/architecture.md).
 
 ## Requirements
 
@@ -55,11 +56,23 @@ Open http://localhost:3000.
 | dave@example.com | Acme Studio, admin |
 | carol@example.com | Acme Studio, viewer |
 | bob@example.com | Bobcat Labs, owner (a separate tenant) |
+| erin@example.com | No workspace yet; has an open invitation to Acme Studio |
 
 Acme Studio also has a demo **Website relaunch** project with tasks, and a
 private **Hiring plan** project that only Alice and Dave can see.
 
+Erin's invitation link is
+http://localhost:3000/invite/0123456789abcdef0123456789abcdef0123456789abcdef
+
 New sign-ups get a confirmation email, which appears in Mailpit.
+
+### Invitations
+
+Owners and admins invite people from workspace settings. Email delivery
+isn't set up yet, so the app shows an invite link to copy and send. The
+invited person also sees the invitation in the app once they sign in with
+that email address. Links expire after 7 days and only work for the invited
+address.
 
 ## Scripts
 
@@ -70,6 +83,7 @@ New sign-ups get a confirmation email, which appears in Mailpit.
 | `npm run test` | Unit and component tests (Vitest) |
 | `npm run test:db` | Database security tests (pgTAP); needs `db:start` |
 | `npm run test:e2e` | Browser tests (Playwright) against a production build; needs `db:start` and `db:reset` |
+| `npm run test:e2e:fresh` | Resets the local database, then runs the browser tests |
 | `npm run db:reset` | Rebuild the local database from migrations and seed data |
 | `npm run db:types` | Regenerate TypeScript types from the local database |
 

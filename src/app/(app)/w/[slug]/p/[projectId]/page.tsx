@@ -35,7 +35,15 @@ export default async function ProjectBoardPage({ params, searchParams }: PagePro
         />
       </div>
       {view.openTaskId ? (
-        <TaskDrawer task={view.openTask} columns={view.columns} people={view.people} labels={view.labels} canEdit={view.canEdit} />
+        <TaskDrawer
+          task={view.openTask}
+          columns={view.columns}
+          people={view.people}
+          labels={view.labels}
+          canEdit={view.canEdit}
+          canModerate={view.canModerate}
+          currentUserId={view.currentUserId}
+        />
       ) : null}
     </Suspense>
   );

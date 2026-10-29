@@ -25,7 +25,15 @@ export default async function ProjectListPage({ params, searchParams }: PageProp
         <TaskList tasks={tasks} columns={view.columns} today={view.today} isFiltered={view.isFiltered} />
       </div>
       {view.openTaskId ? (
-        <TaskDrawer task={view.openTask} columns={view.columns} people={view.people} labels={view.labels} canEdit={view.canEdit} />
+        <TaskDrawer
+          task={view.openTask}
+          columns={view.columns}
+          people={view.people}
+          labels={view.labels}
+          canEdit={view.canEdit}
+          canModerate={view.canModerate}
+          currentUserId={view.currentUserId}
+        />
       ) : null}
     </Suspense>
   );

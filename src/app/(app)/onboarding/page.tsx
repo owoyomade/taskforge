@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
 
 import { Brand } from "@/components/brand";
+import { MyInvitations } from "@/components/members/my-invitations";
+import { listMyInvitations } from "@/lib/invitations";
 import { getMyProfile } from "@/lib/profiles";
 import { CreateWorkspaceForm } from "../create-workspace-form";
 
 export const metadata: Metadata = { title: "Set up your workspace" };
 
 export default async function OnboardingPage() {
-  const profile = await getMyProfile();
+  const [profile, invitations] = await Promise.all([getMyProfile(), listMyInvitations()]);
   const firstName = profile.fullName.split(" ")[0];
 
   return (
@@ -21,6 +23,8 @@ export default async function OnboardingPage() {
             and switch between them any time.
           </p>
         </div>
+        <MyInvitations invitations={invitations} />
+        {invitations.length > 0 ? <h2 className="text-lg font-semibold">Or start your own workspace</h2> : null}
         <CreateWorkspaceForm />
       </div>
     </main>

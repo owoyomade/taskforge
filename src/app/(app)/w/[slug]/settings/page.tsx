@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 
 import { LabelsManager } from "@/components/labels-manager";
-import { MemberList } from "@/components/member-list";
+import { InviteForm, MembersManager, OpenInvitationsList, TransferOwnershipForm } from "@/components/members/members-manager";
+import { requireUser } from "@/lib/auth";
+import { listOpenInvitations } from "@/lib/invitations";
 import { can } from "@/lib/permissions";
 import { listLabels } from "@/lib/projects";
 import { getWorkspaceForUser, listWorkspaceMembers } from "@/lib/workspaces";
@@ -12,7 +14,13 @@ export const metadata: Metadata = { title: "Workspace settings" };
 export default async function WorkspaceSettingsPage({ params }: PageProps<"/w/[slug]/settings">) {
   const { slug } = await params;
   const workspace = await getWorkspaceForUser(slug);
-  const [members, labels] = await Promise.all([listWorkspaceMembers(workspace.id), listLabels(workspace.id)]);
+  const canManageMembers = can(workspace.role, "manageMembers");
+  const [user, members, labels, invitations] = await Promise.all([
+    requireUser(),
+    listWorkspaceMembers(workspace.id),
+    listLabels(workspace.id),
+    canManageMembers ? listOpenInvitations(workspace.id) : Promise.resolve([]),
+  ]);
 
   return (
     <div className="mx-auto grid max-w-3xl gap-10">
@@ -53,8 +61,39 @@ export default async function WorkspaceSettingsPage({ params }: PageProps<"/w/[s
             look but not change anything.
           </p>
         </div>
-        <MemberList members={members} />
+        <MembersManager workspace={workspace} members={members} currentUserId={user.id} />
       </section>
+
+      {canManageMembers ? (
+        <section aria-labelledby="invite-heading" className="grid gap-4 border-t pt-6">
+          <div className="grid gap-1">
+            <h2 id="invite-heading" className="text-lg font-semibold">
+              Invite people
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Invitations expire after 7 days and only work for the email address you enter.
+            </p>
+          </div>
+          <InviteForm workspaceId={workspace.id} />
+          <h3 className="text-sm font-semibold">Open invitations</h3>
+          <OpenInvitationsList workspaceId={workspace.id} invitations={invitations} />
+        </section>
+      ) : null}
+
+      {workspace.role === "owner" ? (
+        <section aria-labelledby="transfer-heading" className="grid gap-4 border-t pt-6">
+          <div className="grid gap-1">
+            <h2 id="transfer-heading" className="text-lg font-semibold">
+              Transfer ownership
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              The new owner gets full control and you become an admin. Workspaces can have several owners; you can
+              also make someone an owner from the member list above.
+            </p>
+          </div>
+          <TransferOwnershipForm workspace={workspace} members={members} currentUserId={user.id} />
+        </section>
+      ) : null}
 
       {can(workspace.role, "deleteWorkspace") ? (
         <section aria-labelledby="danger-heading" className="grid gap-4 border-t pt-6">

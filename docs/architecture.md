@@ -74,7 +74,9 @@ tests/
 Built so far: `profiles`, `workspaces`, `workspace_members`, the `avatars`
 bucket (Phase 1); `projects`, `project_members`, `board_columns`, `tasks`
 (including subtasks), `task_assignees`, `labels`, `task_labels`,
-`checklists`, `checklist_items` (Phase 2). The rest is the plan for later
+`checklists`, `checklist_items` (Phase 2); `workspace_invitations`,
+`comments`, `comment_mentions`, `attachments` and the `attachments` bucket
+(Phase 3). The rest is the plan for later
 phases and may change as each phase is designed in detail.
 
 ```mermaid
@@ -158,7 +160,10 @@ promote the new owner first, then demote the old one, in one transaction.
 | Kanban board: custom columns, drag and drop, keyboard moving, quick add | 2 | Built |
 | Tasks: drawer, priority, dates, assignees, labels, subtasks, checklists, duplicate, archive, soft delete and restore | 2 | Built |
 | Filters, search, list view with sorting, project overview | 2 | Built |
-| Invitations, role management, ownership transfer, comments, mentions, attachments | 3 | Planned |
+| Invitations (copy-link and in-app), role changes, member removal, leaving, ownership transfer | 3 | Built |
+| Comments with @mentions, editing and deleting | 3 | Built |
+| Attachments: private bucket, type and size checks, 100 MB per workspace, signed downloads | 3 | Built |
+| Invitation emails | Later | Needs an email provider |
 | Milestones, dashboards, notifications, audit history | 4 | Planned |
 | Security review, performance, accessibility audit, deployment, monitoring | 5 | Planned |
 
@@ -176,6 +181,10 @@ promote the new owner first, then demote the old one, in one transaction.
 | CSRF | Server Actions only accept POST from the same origin (Next.js checks the Origin header); auth cookies are SameSite=Lax. |
 | Leaked secrets | No secret keys in Phase 1; `.env*` is git-ignored; only `NEXT_PUBLIC_` values reach the browser and they are safe by design. |
 | Abuse / cost | Supabase Auth's built-in rate limits on sign-in and emails; a 10-owned-workspace cap per user; 200 projects per workspace. Invitation rate limits come with invitations in Phase 3. |
+| Invite links leaked or forwarded | Only a SHA-256 hash of the token is stored; accepting requires being signed in with the invited, verified email; links expire after 7 days and are single use. |
+| Invitation spam | 20 invitations per workspace per hour, 100 open at once. |
+| Mention spoofing or pinging outsiders | Mentions are stored as user ids; the server drops mentions of anyone who can't see the project; names are shown from the live member list. |
+| Malicious file uploads | 5 MB limit; type checked from file content against an allow-list (no HTML, SVG or executables); safe file names; private bucket; storage policies check the workspace and project in the path; downloads use 60-second signed URLs that force a download. |
 | Lost edits from concurrent changes | Version check on task saves; board moves are recomputed on the server from current positions. |
 | Sensitive data in logs | Server logs record error codes and messages only, never form input. |
 
@@ -192,8 +201,12 @@ launch. At the time of writing, the free tiers roughly allow:
   launch needs the Pro plan.
 
 Guardrails already in place: 2 MB avatar limit, old avatars deleted on
-replace, workspace cap per user. Attachments (Phase 3) will get their own
-per-file and per-workspace limits.
+replace, workspace cap per user, 5 MB per attachment and 100 MB of
+attachments per workspace.
+
+Known gap: deleting a whole project removes its attachment records, but the
+files stay in storage. A cleanup job for orphaned files belongs with the
+retention work in Phase 5.
 
 ## Likely paid needs later
 

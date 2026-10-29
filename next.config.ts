@@ -8,8 +8,8 @@ const nextConfig: NextConfig = {
   cacheComponents: false,
   experimental: {
     serverActions: {
-      // Avatars are capped at 2 MB; leave headroom for multipart overhead.
-      bodySizeLimit: "2.5mb",
+      // Attachments are capped at 5 MB (avatars at 2 MB); leave headroom for multipart overhead.
+      bodySizeLimit: "5.5mb",
     },
   },
   turbopack: {

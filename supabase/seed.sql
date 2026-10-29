@@ -111,3 +111,39 @@ insert into public.checklists (id, task_id, project_id, workspace_id, title) val
 insert into public.checklist_items (checklist_id, task_id, project_id, workspace_id, content, is_done, position) values
   ('70000000-0000-4000-8000-000000000001', '60000000-0000-4000-8000-000000000003', '30000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'Mobile layout', true, 1000),
   ('70000000-0000-4000-8000-000000000001', '60000000-0000-4000-8000-000000000003', '30000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'Dark mode check', false, 2000);
+
+-- Phase 3: a comment thread, and an open invitation for a fifth demo user
+-- (erin@example.com, password Password123) who isn't in any workspace yet.
+
+insert into public.comments (id, workspace_id, project_id, task_id, author_id, body, created_at) values
+  ('80000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', '30000000-0000-4000-8000-000000000001',
+   '60000000-0000-4000-8000-000000000003', 'd4d4d4d4-0000-4000-8000-000000000004',
+   'First draft of the tiers is in Figma. @[Alice Adeyemi](a1a1a1a1-0000-4000-8000-000000000001) can you check the yearly discount?', now() - interval '2 hours'),
+  ('80000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000001', '30000000-0000-4000-8000-000000000001',
+   '60000000-0000-4000-8000-000000000003', 'a1a1a1a1-0000-4000-8000-000000000001',
+   'Looks good. Let''s go with 20% off yearly.', now() - interval '1 hour');
+
+insert into public.comment_mentions (comment_id, project_id, workspace_id, user_id) values
+  ('80000000-0000-4000-8000-000000000001', '30000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'a1a1a1a1-0000-4000-8000-000000000001');
+
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+  confirmation_token, recovery_token, email_change, email_change_token_new
+) values (
+  '00000000-0000-0000-0000-000000000000', 'e5e5e5e5-0000-4000-8000-000000000005', 'authenticated', 'authenticated',
+  'erin@example.com', extensions.crypt('Password123', extensions.gen_salt('bf')), now(),
+  '{"provider": "email", "providers": ["email"]}', '{"full_name": "Erin Walsh"}', now(), now(), '', '', '', ''
+);
+
+insert into auth.identities (id, user_id, provider_id, provider, identity_data, last_sign_in_at, created_at, updated_at) values (
+  gen_random_uuid(), 'e5e5e5e5-0000-4000-8000-000000000005', 'e5e5e5e5-0000-4000-8000-000000000005', 'email',
+  '{"sub": "e5e5e5e5-0000-4000-8000-000000000005", "email": "erin@example.com", "email_verified": true}', now(), now(), now()
+);
+
+-- Erin's invite link works locally:
+-- http://localhost:3000/invite/0123456789abcdef0123456789abcdef0123456789abcdef
+insert into public.workspace_invitations (workspace_id, email, role, token_hash, invited_by) values (
+  '10000000-0000-4000-8000-000000000001', 'erin@example.com', 'member',
+  encode(extensions.digest('0123456789abcdef0123456789abcdef0123456789abcdef', 'sha256'), 'hex'), 'a1a1a1a1-0000-4000-8000-000000000001'
+);

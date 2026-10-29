@@ -1,5 +1,6 @@
 import "server-only";
 
+import { requireUser } from "@/lib/auth";
 import {
   getProjectForUser,
   getTaskDetail,
@@ -19,7 +20,7 @@ type SearchParams = Record<string, string | string[] | undefined>;
  * task (when ?task= is in the URL).
  */
 export async function loadProjectView(slug: string, projectId: string, searchParams: SearchParams) {
-  const workspace = await getWorkspaceForUser(slug);
+  const [user, workspace] = await Promise.all([requireUser(), getWorkspaceForUser(slug)]);
   const project = await getProjectForUser(workspace.id, projectId);
   const filters = parseTaskFilters(searchParams);
   const openTaskId = typeof searchParams.task === "string" ? searchParams.task : undefined;
@@ -44,6 +45,8 @@ export async function loadProjectView(slug: string, projectId: string, searchPar
     openTask: openTask ?? null,
     isFiltered: hasActiveFilters(filters),
     canEdit: project.access === "edit" || project.access === "manage",
+    canModerate: project.access === "manage",
+    currentUserId: user.id,
     today: dateRange(0).today,
   };
 }

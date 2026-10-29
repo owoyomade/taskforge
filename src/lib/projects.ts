@@ -60,6 +60,8 @@ export type TaskDetail = TaskCard & {
   createdBy: Person | null;
   subtaskItems: { id: string; title: string; completed: boolean }[];
   checklists: { id: string; title: string; items: { id: string; content: string; isDone: boolean }[] }[];
+  comments: CommentView[];
+  attachments: AttachmentView[];
 };
 
 export type RemovedTask = { id: string; title: string; archivedAt: string | null; deletedAt: string | null };
@@ -342,7 +344,7 @@ export async function getTaskDetail(
   }
 
   const supabase = await createClient();
-  const [task, subtasks, checklists, items, assignees, taskLabels, people, labels] = await Promise.all([
+  const [task, subtasks, checklists, items, assignees, taskLabels, people, labels, comments, attachments] = await Promise.all([
     supabase
       .from("tasks")
       .select(
@@ -365,6 +367,8 @@ export async function getTaskDetail(
     supabase.from("task_labels").select("label_id").eq("task_id", taskId),
     listWorkspaceMembers(project.workspaceId),
     listLabels(project.workspaceId),
+    listComments(project, taskId),
+    listAttachments(project, taskId),
   ]);
 
   if (!task.data || !task.data.column_id) {
@@ -413,6 +417,8 @@ export async function getTaskDetail(
         isDone: item.is_done,
       })),
     })),
+    comments,
+    attachments,
   };
 }
 
@@ -441,4 +447,81 @@ function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
     else groups.set(key(item), [item]);
   }
   return groups;
+}
+
+export type CommentView = {
+  id: string;
+  body: string;
+  author: Person | null;
+  authorId: string | null;
+  createdAt: string;
+  editedAt: string | null;
+  mentionIds: string[];
+};
+
+export type AttachmentView = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedBy: Person | null;
+  uploadedById: string | null;
+  createdAt: string;
+};
+
+/** A task's comments, oldest first, with the people they validly mention. */
+export async function listComments(project: ProjectDetail, taskId: string): Promise<CommentView[]> {
+  const supabase = await createClient();
+  const [{ data: comments, error }, { data: mentions, error: mentionError }, people] = await Promise.all([
+    supabase
+      .from("comments")
+      .select("id, body, author_id, created_at, edited_at")
+      .eq("task_id", taskId)
+      .order("created_at")
+      .limit(200),
+    supabase.from("comment_mentions").select("comment_id, user_id").eq("project_id", project.id),
+    listWorkspaceMembers(project.workspaceId),
+  ]);
+  if (error || mentionError) {
+    throw new Error("Could not load comments.");
+  }
+
+  const peopleById = new Map(people.map((member) => [member.userId, toPerson(member)]));
+  const mentionsByComment = groupBy(mentions, (mention) => mention.comment_id);
+
+  return comments.map((comment) => ({
+    id: comment.id,
+    body: comment.body,
+    author: comment.author_id ? (peopleById.get(comment.author_id) ?? null) : null,
+    authorId: comment.author_id,
+    createdAt: comment.created_at,
+    editedAt: comment.edited_at,
+    mentionIds: (mentionsByComment.get(comment.id) ?? []).map((mention) => mention.user_id),
+  }));
+}
+
+export async function listAttachments(project: ProjectDetail, taskId: string): Promise<AttachmentView[]> {
+  const supabase = await createClient();
+  const [{ data, error }, people] = await Promise.all([
+    supabase
+      .from("attachments")
+      .select("id, file_name, content_type, size_bytes, uploaded_by, created_at")
+      .eq("task_id", taskId)
+      .order("created_at"),
+    listWorkspaceMembers(project.workspaceId),
+  ]);
+  if (error) {
+    throw new Error("Could not load attachments.");
+  }
+
+  const peopleById = new Map(people.map((member) => [member.userId, toPerson(member)]));
+  return data.map((row) => ({
+    id: row.id,
+    fileName: row.file_name,
+    contentType: row.content_type,
+    sizeBytes: row.size_bytes,
+    uploadedBy: row.uploaded_by ? (peopleById.get(row.uploaded_by) ?? null) : null,
+    uploadedById: row.uploaded_by,
+    createdAt: row.created_at,
+  }));
 }

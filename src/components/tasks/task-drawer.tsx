@@ -28,6 +28,8 @@ import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { UserAvatar } from "@/components/user-avatar";
+import { TaskAttachments } from "./task-attachments";
+import { TaskComments } from "./task-comments";
 import { formatDate } from "@/lib/dates";
 import { initialFormState, type FormState } from "@/lib/form-state";
 import type { ActionResult } from "@/lib/project-access";
@@ -41,13 +43,16 @@ type TaskDrawerProps = {
   people: Person[];
   labels: LabelView[];
   canEdit: boolean;
+  /** Project managers can delete anyone's comments and files. */
+  canModerate: boolean;
+  currentUserId: string;
 };
 
 /**
  * Task details in a side panel. It's driven by the ?task= URL parameter, so
  * a task can be linked to directly and the back button closes it.
  */
-export function TaskDrawer({ task, columns, people, labels, canEdit }: TaskDrawerProps) {
+export function TaskDrawer({ task, columns, people, labels, canEdit, canModerate, currentUserId }: TaskDrawerProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -62,7 +67,7 @@ export function TaskDrawer({ task, columns, people, labels, canEdit }: TaskDrawe
     <Sheet open onOpenChange={(open) => !open && close()}>
       <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-0 sm:max-w-xl">
         {task ? (
-          <TaskDetailBody key={`${task.id}:${task.version}`} task={task} {...{ columns, people, labels, canEdit }} onClose={close} />
+          <TaskDetailBody key={`${task.id}:${task.version}`} task={task} {...{ columns, people, labels, canEdit, canModerate, currentUserId }} onClose={close} />
         ) : (
           <SheetHeader className="p-6">
             <SheetTitle>Task not found</SheetTitle>
@@ -108,7 +113,7 @@ function useOptimisticToggles(saved: Record<string, boolean>) {
   return { values, toggle };
 }
 
-function TaskDetailBody({ task, columns, people, labels, canEdit, onClose }: TaskDrawerProps & { task: TaskDetail; onClose: () => void }) {
+function TaskDetailBody({ task, columns, people, labels, canEdit, canModerate, currentUserId, onClose }: TaskDrawerProps & { task: TaskDetail; onClose: () => void }) {
   const { isPending, run } = useRunAction();
   const router = useRouter();
   const pathname = usePathname();
@@ -211,6 +216,21 @@ function TaskDetailBody({ task, columns, people, labels, canEdit, onClose }: Tas
       <LabelSection task={task} labels={labels} canEdit={canEdit} />
       <SubtaskSection task={task} canEdit={canEdit} />
       <ChecklistSection task={task} canEdit={canEdit} />
+      <TaskAttachments
+        taskId={task.id}
+        attachments={task.attachments}
+        currentUserId={currentUserId}
+        canUpload={canEdit}
+        canModerate={canModerate}
+      />
+      <TaskComments
+        taskId={task.id}
+        comments={task.comments}
+        people={people}
+        currentUserId={currentUserId}
+        canComment={canEdit}
+        canModerate={canModerate}
+      />
 
       <p className="text-xs text-muted-foreground">Created {formatDate(task.createdAt.slice(0, 10))}</p>
     </div>
