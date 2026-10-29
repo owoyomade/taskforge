@@ -7,6 +7,7 @@ import {
   ProjectDetailsForm,
   ProjectMembersList,
   RemovedTasksList,
+  SaveAsTemplateForm,
 } from "@/components/projects/project-settings-forms";
 import { getProjectForUser, listAssignablePeople, listProjectMemberIds, listRemovedTasks, type Person } from "@/lib/projects";
 import { getWorkspaceForUser, listWorkspaceMembers } from "@/lib/workspaces";
@@ -70,6 +71,19 @@ export default async function ProjectSettingsPage({ params }: PageProps<"/w/[slu
           <p className="text-sm text-muted-foreground">Restoring a task puts it back on the board in its old column.</p>
         </div>
         <RemovedTasksList tasks={removedTasks} />
+      </section>
+
+      <section aria-labelledby="template-heading" className="grid gap-4 border-t pt-6">
+        <div className="grid gap-1">
+          <h2 id="template-heading" className="text-lg font-semibold">
+            Save as a template
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Reuse this project&apos;s phases, tasks and checklists next time. People, comments and files aren&apos;t
+            included, and dates are kept relative to the finish date.
+          </p>
+        </div>
+        <SaveAsTemplateForm project={project} />
       </section>
 
       <section aria-labelledby="archive-heading" className="grid gap-4 border-t pt-6">

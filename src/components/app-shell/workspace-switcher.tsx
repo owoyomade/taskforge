@@ -24,11 +24,11 @@ export function WorkspaceSwitcher({ current, workspaces }: WorkspaceSwitcherProp
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={`Current workspace: ${current.name}. Switch workspace`}
-        className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left text-sidebar-foreground outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-sidebar-ring/60"
       >
         <WorkspaceMark name={current.name} />
         <span className="min-w-0 flex-1 truncate font-heading font-semibold">{current.name}</span>
-        <ChevronsUpDownIcon className="size-4 text-muted-foreground" />
+        <ChevronsUpDownIcon className="size-4 text-sidebar-foreground/60" />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-64">
         <DropdownMenuGroup>
@@ -55,7 +55,7 @@ function WorkspaceMark({ name, small = false }: { name: string; small?: boolean 
   return (
     <span
       aria-hidden="true"
-      className={`grid shrink-0 place-items-center rounded-md bg-primary font-heading font-semibold text-primary-foreground ${small ? "size-5 text-[0.65rem]" : "size-8 text-sm"}`}
+      className={`grid shrink-0 place-items-center rounded-md bg-sidebar-primary font-heading font-semibold text-sidebar-primary-foreground ${small ? "size-5 text-[0.65rem]" : "size-8 text-sm"}`}
     >
       {name.trim().charAt(0).toUpperCase()}
     </span>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboardIcon, MenuIcon, SettingsIcon } from "lucide-react";
+import { HomeIcon, MenuIcon, PlusIcon, SettingsIcon } from "lucide-react";
 
 import { Brand } from "@/components/brand";
 import { ColorDot } from "@/components/color-picker";
@@ -51,37 +51,42 @@ export function AppSidebar(props: AppSidebarProps) {
   );
 }
 
+// Shared look for links on the dark sidebar.
+const NAV_LINK =
+  "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-sidebar-foreground/70 outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-3 focus-visible:ring-sidebar-ring/60 aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-semibold aria-[current=page]:text-sidebar-accent-foreground";
+
 function SidebarContents({ workspace, workspaces, profile, projects }: AppSidebarProps) {
   const pathname = usePathname();
   const base = `/w/${workspace.slug}`;
   const links = [
-    { href: base, label: "Overview", icon: LayoutDashboardIcon },
-    { href: `${base}/settings`, label: "Settings", icon: SettingsIcon },
+    { href: base, label: "Home", icon: HomeIcon },
+    { href: `${base}/settings`, label: "Team and settings", icon: SettingsIcon },
   ];
 
   return (
-    <div className="flex h-full flex-col gap-4 p-3">
+    <div className="flex h-full flex-col gap-5 p-3">
       <WorkspaceSwitcher current={workspace} workspaces={workspaces} />
+      {workspace.role !== "viewer" ? (
+        <Link
+          href={`${base}/projects/new`}
+          className="flex items-center justify-center gap-2 rounded-lg bg-sidebar-primary px-3 py-2.5 text-sm font-semibold text-sidebar-primary-foreground outline-none hover:brightness-105 focus-visible:ring-3 focus-visible:ring-sidebar-ring/60"
+        >
+          <PlusIcon className="size-4" aria-hidden="true" />
+          New project
+        </Link>
+      ) : null}
       <nav aria-label="Workspace" className="grid gap-0.5">
-        {links.map(({ href, label, icon: Icon }) => {
-          const isActive = pathname === href;
-          return (
-            <Link
-              key={href}
-              href={href}
-              aria-current={isActive ? "page" : undefined}
-              className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-3 focus-visible:ring-ring/50 aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-foreground"
-            >
-              <Icon className="size-4" />
-              {label}
-            </Link>
-          );
-        })}
+        {links.map(({ href, label, icon: Icon }) => (
+          <Link key={href} href={href} aria-current={pathname === href ? "page" : undefined} className={NAV_LINK}>
+            <Icon className="size-4" aria-hidden="true" />
+            {label}
+          </Link>
+        ))}
       </nav>
       <div className="grid min-h-0 gap-1">
-        <h2 className="px-2.5 text-xs font-medium text-muted-foreground">Projects</h2>
+        <h2 className="px-2.5 text-xs font-semibold text-sidebar-foreground/50">Projects</h2>
         {projects.length === 0 ? (
-          <p className="px-2.5 py-1 text-sm text-muted-foreground">None yet</p>
+          <p className="px-2.5 py-1 text-sm text-sidebar-foreground/60">No projects yet</p>
         ) : (
           <ul className="grid max-h-[50vh] gap-0.5 overflow-y-auto">
             {projects.map((project) => {
@@ -89,11 +94,7 @@ function SidebarContents({ workspace, workspaces, profile, projects }: AppSideba
               const isActive = pathname === href || pathname.startsWith(`${href}/`);
               return (
                 <li key={project.id}>
-                  <Link
-                    href={href}
-                    aria-current={isActive ? "page" : undefined}
-                    className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-3 focus-visible:ring-ring/50 aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-foreground"
-                  >
+                  <Link href={href} aria-current={isActive ? "page" : undefined} className={NAV_LINK}>
                     <ColorDot color={project.color} />
                     <span className="truncate">{project.name}</span>
                   </Link>

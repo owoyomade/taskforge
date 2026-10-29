@@ -16,7 +16,8 @@ export function ProjectTabs({ basePath, showSettings }: { basePath: string; show
   const keepFilters = filterQuery.size > 0 ? `?${filterQuery.toString()}` : "";
 
   const tabs: Tab[] = [
-    { href: basePath, label: "Board" },
+    { href: basePath, label: "Plan" },
+    { href: `${basePath}/board`, label: "Board" },
     { href: `${basePath}/list`, label: "List" },
     { href: `${basePath}/overview`, label: "Overview" },
     ...(showSettings ? [{ href: `${basePath}/settings`, label: "Settings" }] : []),

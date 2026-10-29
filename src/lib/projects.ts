@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import {
   asColor,
+  PRIORITY_RANK,
   type Color,
   type ProjectStatus,
   type ProjectVisibility,
@@ -524,4 +525,163 @@ export async function listAttachments(project: ProjectDetail, taskId: string): P
     uploadedById: row.uploaded_by,
     createdAt: row.created_at,
   }));
+}
+
+export type PhaseView = {
+  id: string;
+  name: string;
+  description: string;
+  targetDate: string | null;
+  ownerId: string | null;
+  position: number;
+  taskIds: string[];
+  total: number;
+  done: number;
+};
+
+/**
+ * Phases for every project in a workspace (or one project), with task counts
+ * worked out from which tasks sit in "done" columns. Archived and deleted
+ * tasks don't count.
+ */
+export async function listPhases(workspaceId: string, projectId?: string): Promise<Map<string, PhaseView[]>> {
+  const supabase = await createClient();
+  let phaseQuery = supabase
+    .from("milestones")
+    .select("id, project_id, name, description, target_date, owner_id, position")
+    .eq("workspace_id", workspaceId);
+  let linkQuery = supabase.from("milestone_tasks").select("milestone_id, task_id").eq("workspace_id", workspaceId);
+  let taskQuery = supabase
+    .from("tasks")
+    .select("id, column_id")
+    .eq("workspace_id", workspaceId)
+    .is("parent_task_id", null)
+    .is("archived_at", null)
+    .is("deleted_at", null);
+  if (projectId) {
+    phaseQuery = phaseQuery.eq("project_id", projectId);
+    linkQuery = linkQuery.eq("project_id", projectId);
+    taskQuery = taskQuery.eq("project_id", projectId);
+  }
+
+  const [phases, links, tasks, columns] = await Promise.all([
+    phaseQuery.order("position"),
+    linkQuery,
+    taskQuery,
+    supabase.from("board_columns").select("id, is_done").eq("workspace_id", workspaceId),
+  ]);
+  if (phases.error || links.error || tasks.error || columns.error) {
+    throw new Error("Could not load phases.");
+  }
+
+  const doneColumns = new Set(columns.data.filter((column) => column.is_done).map((column) => column.id));
+  const liveTasks = new Map(tasks.data.map((task) => [task.id, task.column_id]));
+  const linksByPhase = groupBy(links.data, (link) => link.milestone_id);
+
+  const result = new Map<string, PhaseView[]>();
+  for (const phase of phases.data) {
+    const taskIds = (linksByPhase.get(phase.id) ?? []).map((link) => link.task_id).filter((id) => liveTasks.has(id));
+    const done = taskIds.filter((id) => {
+      const columnId = liveTasks.get(id);
+      return columnId ? doneColumns.has(columnId) : false;
+    }).length;
+    const list = result.get(phase.project_id) ?? [];
+    list.push({
+      id: phase.id,
+      name: phase.name,
+      description: phase.description,
+      targetDate: phase.target_date,
+      ownerId: phase.owner_id,
+      position: phase.position,
+      taskIds,
+      total: taskIds.length,
+      done,
+    });
+    result.set(phase.project_id, list);
+  }
+  return result;
+}
+
+export type MyTask = {
+  id: string;
+  title: string;
+  columnId: string;
+  dueDate: string | null;
+  priority: TaskPriority;
+  projectId: string;
+  projectName: string;
+  projectColor: Color;
+};
+
+/**
+ * Open tasks assigned to the signed-in user in this workspace, most urgent
+ * first: overdue, then by due date, then undated. Used for "Do next".
+ */
+export async function listMyOpenTasks(workspaceId: string, userId: string, limit = 25): Promise<MyTask[]> {
+  const supabase = await createClient();
+  const [assigned, columns, projects] = await Promise.all([
+    supabase.from("task_assignees").select("task_id").eq("workspace_id", workspaceId).eq("user_id", userId),
+    supabase.from("board_columns").select("id, is_done").eq("workspace_id", workspaceId),
+    supabase.from("projects").select("id, name, color, archived_at").eq("workspace_id", workspaceId),
+  ]);
+  if (assigned.error || columns.error || projects.error) {
+    throw new Error("Could not load your tasks.");
+  }
+
+  const taskIds = assigned.data.map((row) => row.task_id);
+  if (taskIds.length === 0) return [];
+
+  const { data: tasks, error } = await supabase
+    .from("tasks")
+    .select("id, title, due_date, priority, project_id, column_id")
+    .in("id", taskIds.slice(0, 500))
+    .is("parent_task_id", null)
+    .is("archived_at", null)
+    .is("deleted_at", null);
+  if (error) {
+    throw new Error("Could not load your tasks.");
+  }
+
+  const doneColumns = new Set(columns.data.filter((column) => column.is_done).map((column) => column.id));
+  const activeProjects = new Map(
+    projects.data.filter((project) => !project.archived_at).map((project) => [project.id, project]),
+  );
+
+  return tasks
+    .filter((task) => task.column_id && !doneColumns.has(task.column_id) && activeProjects.has(task.project_id))
+    .sort((a, b) => {
+      if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
+      if (a.due_date) return -1;
+      if (b.due_date) return 1;
+      return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+    })
+    .slice(0, limit)
+    .map((task) => {
+      const project = activeProjects.get(task.project_id);
+      return {
+        id: task.id,
+        title: task.title,
+        columnId: task.column_id ?? "",
+        dueDate: task.due_date,
+        priority: task.priority,
+        projectId: task.project_id,
+        projectName: project?.name ?? "",
+        projectColor: asColor(project?.color ?? "slate"),
+      };
+    });
+}
+
+export type SavedTemplate = { id: string; name: string; description: string; createdBy: string | null };
+
+export async function listSavedTemplates(workspaceId: string): Promise<SavedTemplate[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("project_templates")
+    .select("id, name, description, created_by")
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    throw new Error("Could not load saved templates.");
+  }
+  return data.map((row) => ({ id: row.id, name: row.name, description: row.description, createdBy: row.created_by }));
 }

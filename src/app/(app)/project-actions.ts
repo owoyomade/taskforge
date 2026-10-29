@@ -9,7 +9,7 @@ import { textField, validationError, type FormState } from "@/lib/form-state";
 import { evenPositions, positionForIndex } from "@/lib/ordering";
 import { hasProjectAccess, NO_PERMISSION, type ActionResult } from "@/lib/project-access";
 import { createClient } from "@/lib/supabase/server";
-import { columnNameSchema, labelSchema, projectCreateSchema, projectUpdateSchema } from "@/lib/validation";
+import { columnNameSchema, labelSchema, projectUpdateSchema } from "@/lib/validation";
 import { listMyWorkspaces } from "@/lib/workspaces";
 
 // Revalidating the workspace layout refreshes the sidebar's project list
@@ -28,39 +28,6 @@ async function workspaceFromForm(formData: FormData) {
 // ---------------------------------------------------------------------------
 // Projects
 // ---------------------------------------------------------------------------
-
-export async function createProject(_previous: FormState, formData: FormData): Promise<FormState> {
-  const values = {
-    name: textField(formData, "name"),
-    description: textField(formData, "description"),
-    visibility: textField(formData, "visibility"),
-    color: textField(formData, "color"),
-  };
-  const parsed = projectCreateSchema.safeParse(values);
-  if (!parsed.success) {
-    return validationError(parsed.error, values);
-  }
-
-  const workspace = await workspaceFromForm(formData);
-  if (!workspace || workspace.role === "viewer") {
-    return { status: "error", message: "You don't have permission to create projects here.", values };
-  }
-
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("create_project", {
-    target_workspace: workspace.id,
-    project_name: parsed.data.name,
-    project_description: parsed.data.description,
-    project_visibility: parsed.data.visibility,
-    project_color: parsed.data.color,
-  });
-  if (error) {
-    return { status: "error", message: toUserMessage(error, "createProject"), values };
-  }
-
-  refreshWorkspace();
-  redirect(`/w/${workspace.slug}/p/${data.id}`);
-}
 
 export async function updateProject(_previous: FormState, formData: FormData): Promise<FormState> {
   const projectId = textField(formData, "projectId");

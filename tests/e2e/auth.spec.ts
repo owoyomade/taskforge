@@ -11,19 +11,18 @@ test("a new user signs up, confirms their email and sets up two workspaces", asy
   await page.getByRole("button", { name: "Create workspace" }).click();
 
   await expect(page).toHaveURL(/\/w\/harbor-creative-[a-z0-9]{6}$/);
-  await expect(page.getByRole("heading", { level: 1, name: "Harbor Creative" })).toBeVisible();
-  await expect(page.getByText("Your role: Owner.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Current workspace: Harbor Creative/ })).toBeVisible();
 
   // Create a second workspace from the switcher, then switch back.
   await page.getByRole("button", { name: /Switch workspace/ }).click();
   await page.getByRole("menuitem", { name: "Create workspace" }).click();
   await page.getByLabel("Workspace name").fill("Side Project");
   await page.getByRole("button", { name: "Create workspace" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Side Project" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Current workspace: Side Project/ })).toBeVisible();
 
   await page.getByRole("button", { name: /Switch workspace/ }).click();
   await page.getByRole("menuitem", { name: "Harbor Creative" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Harbor Creative" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Current workspace: Harbor Creative/ })).toBeVisible();
 });
 
 test("signing in before confirming the email explains what to do", async ({ page }) => {
@@ -47,7 +46,7 @@ test("a user resets a forgotten password with the emailed link", async ({ page }
   await signUpAndConfirm(page, "Reset Tester", email, "original2026");
   await page.getByLabel("Workspace name").fill("Reset Space");
   await page.getByRole("button", { name: "Create workspace" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Reset Space" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Current workspace: Reset Space/ })).toBeVisible();
   await page.context().clearCookies();
 
   await page.goto("/forgot-password");
@@ -63,7 +62,7 @@ test("a user resets a forgotten password with the emailed link", async ({ page }
   await page.getByLabel("New password", { exact: true }).fill("changed2026");
   await page.getByLabel("Confirm new password").fill("changed2026");
   await page.getByRole("button", { name: "Save new password" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Reset Space" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Current workspace: Reset Space/ })).toBeVisible();
 
   // The new password works for a fresh sign-in.
   await page.context().clearCookies();
@@ -71,7 +70,7 @@ test("a user resets a forgotten password with the emailed link", async ({ page }
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill("changed2026");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Reset Space" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Current workspace: Reset Space/ })).toBeVisible();
 });
 
 test("signed-out visitors are sent to sign in and returned afterwards", async ({ page }) => {

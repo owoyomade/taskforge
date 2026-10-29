@@ -217,6 +217,64 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"milestone_tasks": {
+                  Row: {
+                    "milestone_id": string,"project_id": string,"task_id": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "milestone_id": string,"project_id": string,"task_id": string,"workspace_id": string
+                  }
+                  Update: {
+                    "milestone_id"?: string,"project_id"?: string,"task_id"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "milestone_tasks_milestone_id_project_id_fkey"
+      columns: ["milestone_id","project_id"]
+isOneToOne: false
+      referencedRelation: "milestones"
+      referencedColumns: ["id","project_id"]
+    },{
+      foreignKeyName: "milestone_tasks_project_id_workspace_id_fkey"
+      columns: ["project_id","workspace_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["id","workspace_id"]
+    },{
+      foreignKeyName: "milestone_tasks_task_id_project_id_fkey"
+      columns: ["task_id","project_id"]
+isOneToOne: false
+      referencedRelation: "tasks"
+      referencedColumns: ["id","project_id"]
+    }
+                  ]
+                },"milestones": {
+                  Row: {
+                    "created_at": string,"description": string,"id": string,"name": string,"owner_id": string | null,"position": number,"project_id": string,"target_date": string | null,"updated_at": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"description"?: string,"id"?: string,"name": string,"owner_id"?: string | null,"position"?: number,"project_id": string,"target_date"?: string | null,"updated_at"?: string,"workspace_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"description"?: string,"id"?: string,"name"?: string,"owner_id"?: string | null,"position"?: number,"project_id"?: string,"target_date"?: string | null,"updated_at"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "milestones_project_id_workspace_id_fkey"
+      columns: ["project_id","workspace_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["id","workspace_id"]
+    },{
+      foreignKeyName: "milestones_workspace_id_owner_id_fkey"
+      columns: ["workspace_id","owner_id"]
+isOneToOne: false
+      referencedRelation: "workspace_members"
+      referencedColumns: ["workspace_id","user_id"]
+    }
+                  ]
                 },"profiles": {
                   Row: {
                     "avatar_path": string | null,"created_at": string,"email": string,"full_name": string,"id": string,"updated_at": string
@@ -255,6 +313,32 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "workspace_members"
       referencedColumns: ["workspace_id","user_id"]
+    }
+                  ]
+                },"project_templates": {
+                  Row: {
+                    "created_at": string,"created_by": string | null,"definition": NonNullable<Json>,"description": string,"id": string,"name": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"created_by"?: string | null,"definition": NonNullable<Json>,"description"?: string,"id"?: string,"name": string,"workspace_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"created_by"?: string | null,"definition"?: NonNullable<Json>,"description"?: string,"id"?: string,"name"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "project_templates_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "project_templates_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
     }
                   ]
                 },"projects": {
@@ -491,6 +575,29 @@ isOneToOne: false
                            },
 "create_project":
 { Args: { "project_color": string,"project_description": string,"project_name": string,"project_visibility": Database["public"]['Enums']["project_visibility"],"target_workspace": string }; Returns: {
+              "archived_at": string | null,
+"color": string,
+"created_at": string,
+"created_by": string | null,
+"description": string,
+"id": string,
+"name": string,
+"owner_id": string | null,
+"start_date": string | null,
+"status": Database["public"]['Enums']["project_status"],
+"target_date": string | null,
+"updated_at": string,
+"visibility": Database["public"]['Enums']["project_visibility"],
+"workspace_id": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "projects"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
+"create_project_from_template":
+{ Args: { "finish_date"?: string,"project_color": string,"project_description": string,"project_name": string,"project_visibility": Database["public"]['Enums']["project_visibility"],"target_workspace": string,"template"?: Json }; Returns: {
               "archived_at": string | null,
 "color": string,
 "created_at": string,

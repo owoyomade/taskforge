@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDate, dueState } from "@/lib/dates";
+import { addDays, dueState, formatDate } from "@/lib/dates";
 import { summarizeProject } from "@/lib/project-stats";
 import { sortTasks } from "@/lib/task-sort";
 
@@ -79,5 +79,13 @@ describe("dates", () => {
     expect(dueState("2026-10-29", "2026-10-29")).toBe("today");
     expect(dueState("2026-11-01", "2026-10-29")).toBe("soon");
     expect(dueState("2026-11-10", "2026-10-29")).toBe("later");
+  });
+});
+
+describe("addDays", () => {
+  it("moves across month and year boundaries without timezone drift", () => {
+    expect(addDays("2026-03-01", -1)).toBe("2026-02-28");
+    expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
+    expect(addDays("2026-11-03", 0)).toBe("2026-11-03");
   });
 });

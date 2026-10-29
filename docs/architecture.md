@@ -5,6 +5,26 @@ more **workspaces**, and everything else (projects, boards, tasks, comments,
 files) belongs to exactly one workspace. Keeping workspaces sealed off from
 each other is the single most important property of the system.
 
+## Product idea
+
+Taskforge is built for people who've never "managed a project". Instead of
+an empty board, a project starts from a template and a finish date, and is
+shown as a **journey**: phases drawn as stops on a line, with the current
+phase highlighted ("you are here"). Three ideas run through the UI:
+
+- **Start from a plan, not a blank page.** 30 built-in templates across 8
+  categories (`src/lib/templates/library.ts`), plus templates a team saves
+  from its own projects. Dates are counted back from the finish date.
+- **Always show what to do next.** The workspace home lists the person's
+  open tasks grouped as Overdue, Today, Next few days, Later.
+- **Hide the machinery.** The Plan view is a checklist per phase; ticking a
+  task moves it to the board's done column behind the scenes. The board and
+  list are still one tab away for people who want them.
+
+Visual language: a dark navy "map frame" sidebar, route blue for actions and
+the journey line, sun yellow for "now/today", leaf green for done, ember red
+for overdue, and one typeface (Onest) throughout.
+
 ## Stack and why
 
 | Layer | Choice | Why |
@@ -76,7 +96,8 @@ bucket (Phase 1); `projects`, `project_members`, `board_columns`, `tasks`
 (including subtasks), `task_assignees`, `labels`, `task_labels`,
 `checklists`, `checklist_items` (Phase 2); `workspace_invitations`,
 `comments`, `comment_mentions`, `attachments` and the `attachments` bucket
-(Phase 3). The rest is the plan for later
+(Phase 3); `milestones` (shown as "phases"), `milestone_tasks` and
+`project_templates` (Phase 4a). The rest is the plan for later
 phases and may change as each phase is designed in detail.
 
 ```mermaid
@@ -164,6 +185,10 @@ promote the new owner first, then demote the old one, in one transaction.
 | Comments with @mentions, editing and deleting | 3 | Built |
 | Attachments: private bucket, type and size checks, 100 MB per workspace, signed downloads | 3 | Built |
 | Invitation emails | Later | Needs an email provider |
+| Template library (30), new project wizard, save project as template | 4a | Built |
+| Phases with progress from real tasks, journey strip, Plan view | 4a | Built |
+| Home page with "Do next" | 4a | Built |
+| Notifications, activity and audit history, timeline view, dashboards | 4b | Planned |
 | Milestones, dashboards, notifications, audit history | 4 | Planned |
 | Security review, performance, accessibility audit, deployment, monitoring | 5 | Planned |
 

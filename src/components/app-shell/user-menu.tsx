@@ -21,11 +21,11 @@ export function UserMenu({ profile }: { profile: ProfileView }) {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left text-sm outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-ring/50">
+      <DropdownMenuTrigger className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left text-sm text-sidebar-foreground outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-sidebar-ring/60">
         <UserAvatar name={profile.fullName} email={profile.email} avatarUrl={profile.avatarUrl} className="size-8" />
         <span className="min-w-0 flex-1">
           <span className="block truncate font-medium">{displayName}</span>
-          <span className="block truncate text-xs text-muted-foreground">{profile.email}</span>
+          <span className="block truncate text-xs text-sidebar-foreground/60">{profile.email}</span>
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" className="w-56">

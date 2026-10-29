@@ -193,6 +193,35 @@ export async function moveTaskToColumnEnd(taskId: string, columnId: string): Pro
   return moveTask(taskId, columnId, last?.id ?? null, null);
 }
 
+/**
+ * Ticks a task off (or back on) without the person needing to know about
+ * columns: done moves it to the project's first "done" column, not done
+ * moves it back to the first column that isn't.
+ */
+export async function setTaskDone(taskId: string, done: boolean): Promise<ActionResult> {
+  if (!ids(taskId)) return NO_PERMISSION;
+  const task = await loadTask(taskId);
+  if (!task || task.parent_task_id) return { ok: false, message: "That task no longer exists." };
+
+  const supabase = await createClient();
+  const { data: columns } = await supabase
+    .from("board_columns")
+    .select("id, is_done")
+    .eq("project_id", task.project_id)
+    .order("position");
+  const target = columns?.find((column) => column.is_done === done);
+  if (!target) {
+    return {
+      ok: false,
+      message: done
+        ? "This project has no column marked as done. Mark one from the board's column menu."
+        : "This project has no column for unfinished work.",
+    };
+  }
+  if (target.id === task.column_id) return { ok: true };
+  return moveTaskToColumnEnd(taskId, target.id);
+}
+
 // Renumbers a crowded column and returns the position for the moved task.
 async function rebalanceColumn(columnId: string, movingId: string, beforeId: string | null): Promise<number> {
   const supabase = await createClient();

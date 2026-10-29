@@ -1,14 +1,17 @@
 # Taskforge
 
-A project management app for small teams: workspaces, projects, Kanban
-boards and tasks, with each team's data kept strictly separate.
+A project planner for people who are new to project management. Pick a
+ready-made plan, set a finish date, and Taskforge lays out the phases and
+tasks, then shows you what to do next. Each team's data is kept strictly
+separate.
 
 Built with Next.js, TypeScript, Tailwind CSS, shadcn/ui and Supabase
 (Postgres, Auth, Storage, Row Level Security).
 
-> **Status:** Phase 3 of 5. Accounts, workspaces, roles, projects, Kanban
-> boards, tasks, invitations, comments with mentions and file attachments
-> work. Milestones, dashboards, notifications and audit history come next. See [docs/architecture.md](docs/architecture.md).
+> **Status:** Phase 4a of 5. Guided planning: 30 project templates, phases
+> shown as a journey, a "Do next" home page and a checklist-style Plan view,
+> on top of boards, tasks, invitations, comments and attachments.
+> Notifications, activity history and a timeline come next. See [docs/architecture.md](docs/architecture.md).
 
 ## Requirements
 

@@ -7,6 +7,7 @@ import {
   listAssignablePeople,
   listColumns,
   listLabels,
+  listPhases,
   listTaskCards,
 } from "@/lib/projects";
 import { dateRange, hasActiveFilters, parseTaskFilters } from "@/lib/task-filters";
@@ -26,12 +27,14 @@ export async function loadProjectView(slug: string, projectId: string, searchPar
   const openTaskId = typeof searchParams.task === "string" ? searchParams.task : undefined;
 
   const columns = await listColumns(project.id);
-  const [tasks, labels, people, openTask] = await Promise.all([
+  const [tasks, labels, people, openTask, phasesByProject] = await Promise.all([
     listTaskCards(project, columns, filters),
     listLabels(workspace.id),
     listAssignablePeople(project),
     openTaskId ? getTaskDetail(project, columns, openTaskId) : Promise.resolve(undefined),
+    listPhases(workspace.id, project.id),
   ]);
+  const phases = phasesByProject.get(project.id) ?? [];
 
   return {
     workspace,
@@ -43,6 +46,8 @@ export async function loadProjectView(slug: string, projectId: string, searchPar
     people,
     openTaskId,
     openTask: openTask ?? null,
+    phases,
+    openTaskPhaseId: phases.find((phase) => openTaskId && phase.taskIds.includes(openTaskId))?.id ?? null,
     isFiltered: hasActiveFilters(filters),
     canEdit: project.access === "edit" || project.access === "manage",
     canModerate: project.access === "manage",

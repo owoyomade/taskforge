@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { deleteProject, setProjectArchived, setProjectMember, updateProject } from "@/app/(app)/project-actions";
 import { setTaskRemoved } from "@/app/(app)/task-actions";
+import { saveProjectAsTemplate } from "@/app/(app)/template-actions";
 import { ColorPicker } from "@/components/color-picker";
 import { fieldErrors, FormField, FormMessage, previousValue } from "@/components/form-field";
 import { NativeSelect } from "@/components/native-select";
@@ -241,5 +242,36 @@ export function DeleteProjectDialog({ project }: { project: ProjectDetail }) {
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+export function SaveAsTemplateForm({ project }: { project: ProjectDetail }) {
+  const [state, formAction, isPending] = useActionState(saveProjectAsTemplate, initialFormState);
+  const descriptionId = useId();
+
+  useEffect(() => {
+    if (state.status === "success") toast.success(state.message);
+  }, [state]);
+
+  return (
+    <form action={formAction} className="grid max-w-xl gap-4" noValidate>
+      {state.status === "error" && !state.fieldErrors ? <FormMessage state={state} /> : null}
+      <input type="hidden" name="projectId" value={project.id} />
+      <FormField
+        label="Template name"
+        name="name"
+        required
+        maxLength={80}
+        defaultValue={previousValue(state, "name") ?? project.name}
+        errors={fieldErrors(state, "name")}
+      />
+      <div className="grid gap-1.5">
+        <Label htmlFor={descriptionId}>What is it for? (optional)</Label>
+        <Textarea id={descriptionId} name="description" maxLength={300} rows={2} defaultValue={previousValue(state, "description")} />
+      </div>
+      <Button type="submit" variant="outline" className="justify-self-start" disabled={isPending}>
+        {isPending ? "Saving…" : "Save as template"}
+      </Button>
+    </form>
   );
 }

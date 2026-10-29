@@ -11,7 +11,7 @@ test("the workspace layout fits a phone screen and the menu opens", async ({ pag
   expect(hasHorizontalScroll).toBe(false);
 
   await page.getByRole("button", { name: "Open navigation" }).click();
-  await page.getByRole("dialog").getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("dialog").getByRole("link", { name: "Team and settings" }).click();
   await expect(page).toHaveURL(/\/w\/acme-studio\/settings$/);
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });

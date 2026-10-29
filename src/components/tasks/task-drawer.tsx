@@ -20,6 +20,7 @@ import {
   setTaskRemoved,
   updateTask,
 } from "@/app/(app)/task-actions";
+import { setTaskPhase } from "@/app/(app)/phase-actions";
 import { fieldErrors, FormField, FormMessage, previousValue } from "@/components/form-field";
 import { NativeSelect } from "@/components/native-select";
 import { Button } from "@/components/ui/button";
@@ -46,13 +47,25 @@ type TaskDrawerProps = {
   /** Project managers can delete anyone's comments and files. */
   canModerate: boolean;
   currentUserId: string;
+  phases: { id: string; name: string }[];
+  currentPhaseId: string | null;
 };
 
 /**
  * Task details in a side panel. It's driven by the ?task= URL parameter, so
  * a task can be linked to directly and the back button closes it.
  */
-export function TaskDrawer({ task, columns, people, labels, canEdit, canModerate, currentUserId }: TaskDrawerProps) {
+export function TaskDrawer({
+  task,
+  columns,
+  people,
+  labels,
+  canEdit,
+  canModerate,
+  currentUserId,
+  phases,
+  currentPhaseId,
+}: TaskDrawerProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -67,7 +80,7 @@ export function TaskDrawer({ task, columns, people, labels, canEdit, canModerate
     <Sheet open onOpenChange={(open) => !open && close()}>
       <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-0 sm:max-w-xl">
         {task ? (
-          <TaskDetailBody key={`${task.id}:${task.version}`} task={task} {...{ columns, people, labels, canEdit, canModerate, currentUserId }} onClose={close} />
+          <TaskDetailBody key={`${task.id}:${task.version}`} task={task} {...{ columns, people, labels, canEdit, canModerate, currentUserId, phases, currentPhaseId }} onClose={close} />
         ) : (
           <SheetHeader className="p-6">
             <SheetTitle>Task not found</SheetTitle>
@@ -113,11 +126,12 @@ function useOptimisticToggles(saved: Record<string, boolean>) {
   return { values, toggle };
 }
 
-function TaskDetailBody({ task, columns, people, labels, canEdit, canModerate, currentUserId, onClose }: TaskDrawerProps & { task: TaskDetail; onClose: () => void }) {
+function TaskDetailBody({ task, columns, people, labels, canEdit, canModerate, currentUserId, phases, currentPhaseId, onClose }: TaskDrawerProps & { task: TaskDetail; onClose: () => void }) {
   const { isPending, run } = useRunAction();
   const router = useRouter();
   const pathname = usePathname();
   const statusId = useId();
+  const phaseId = useId();
   const currentColumn = columns.find((column) => column.id === task.columnId);
 
   return (
@@ -125,7 +139,7 @@ function TaskDetailBody({ task, columns, people, labels, canEdit, canModerate, c
       <SheetHeader className="p-0 pr-8">
         <SheetDescription>
           {currentColumn?.name ?? "Task"}
-          {task.createdBy ? ` · Created by ${task.createdBy.name}` : ""}
+          {task.createdBy ? `, created by ${task.createdBy.name}` : ""}
         </SheetDescription>
         <SheetTitle className="text-xl">{task.title}</SheetTitle>
       </SheetHeader>
@@ -149,6 +163,26 @@ function TaskDetailBody({ task, columns, people, labels, canEdit, canModerate, c
               ))}
             </NativeSelect>
           </div>
+          {phases.length > 0 ? (
+            <div className="grid min-w-40 flex-1 gap-1">
+              <Label htmlFor={phaseId} className="text-xs text-muted-foreground">
+                Phase
+              </Label>
+              <NativeSelect
+                id={phaseId}
+                defaultValue={currentPhaseId ?? ""}
+                disabled={isPending}
+                onChange={(event) => run(() => setTaskPhase(task.id, event.target.value || null), "Phase updated.")}
+              >
+                <option value="">No phase</option>
+                {phases.map((phase) => (
+                  <option key={phase.id} value={phase.id}>
+                    {phase.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </div>
+          ) : null}
           <Button
             variant="outline"
             className="h-10"

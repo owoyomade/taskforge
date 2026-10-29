@@ -6,7 +6,7 @@ import { signIn } from "./helpers";
 
 test("members of one workspace cannot open another tenant's workspace", async ({ page }) => {
   await signIn(page, "bob@example.com");
-  await expect(page.getByRole("heading", { level: 1, name: "Bobcat Labs" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Current workspace: Bobcat Labs/ })).toBeVisible();
 
   const response = await page.goto("/w/acme-studio");
   expect(response?.status()).toBe(404);
@@ -30,9 +30,9 @@ test("an owner renames a workspace and deletes one after typing its name", async
   await page.goto("/workspaces/new");
   await page.getByLabel("Workspace name").fill("Temporary Team");
   await page.getByRole("button", { name: "Create workspace" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Temporary Team" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Current workspace: Temporary Team/ })).toBeVisible();
 
-  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("link", { name: "Team and settings" }).click();
   await page.getByLabel("Workspace name").fill("Renamed Team");
   await page.getByRole("button", { name: "Save name" }).click();
   await expect(page.getByText("Workspace renamed.")).toBeVisible();

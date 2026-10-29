@@ -25,3 +25,10 @@ export function dueState(dueDate: string, today: string): DueState {
   const days = (Date.parse(`${dueDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000;
   return days <= 3 ? "soon" : "later";
 }
+
+/** Adds whole days to a calendar date ("2026-11-03" + -7 = "2026-10-27"), in UTC. */
+export function addDays(isoDate: string, days: number): string {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}

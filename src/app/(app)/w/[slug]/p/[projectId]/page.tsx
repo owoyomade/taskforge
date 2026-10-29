@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
-import { BoardView } from "@/components/board/board-view";
-import { TaskFiltersBar } from "@/components/board/task-filters-bar";
+import { PlanView } from "@/components/plan/plan-view";
 import { TaskDrawer } from "@/components/tasks/task-drawer";
+import { phaseStates } from "@/lib/phase-progress";
 import { getProjectForUser } from "@/lib/projects";
 import { loadProjectView } from "@/lib/project-view";
 import { getWorkspaceForUser } from "@/lib/workspaces";
@@ -15,25 +15,27 @@ export async function generateMetadata({ params }: PageProps<"/w/[slug]/p/[proje
   return { title: project.name };
 }
 
-export default async function ProjectBoardPage({ params, searchParams }: PageProps<"/w/[slug]/p/[projectId]">) {
+/** A project's default view: its phases as a checklist. */
+export default async function ProjectPlanPage({ params, searchParams }: PageProps<"/w/[slug]/p/[projectId]">) {
   const { slug, projectId } = await params;
-  const view = await loadProjectView(slug, projectId, await searchParams);
+  // The plan always shows every task; filters belong to the board and list.
+  const query = await searchParams;
+  const view = await loadProjectView(slug, projectId, { task: query.task });
+  const phases = phaseStates(view.phases, view.today).map((state, index) => ({
+    ...state,
+    taskIds: view.phases[index].taskIds,
+  }));
 
-  // The client components below read the URL (useSearchParams), which
-  // Next.js requires to be inside a Suspense boundary.
   return (
     <Suspense>
-      <div className="grid gap-4">
-        <TaskFiltersBar people={view.people} labels={view.labels} resultCount={view.tasks.length} />
-        <BoardView
-          projectId={view.project.id}
-          columns={view.columns}
-          tasks={view.tasks}
-          canEdit={view.canEdit}
-          today={view.today}
-          isFiltered={view.isFiltered}
-        />
-      </div>
+      <PlanView
+        projectId={view.project.id}
+        phases={phases}
+        tasks={view.tasks}
+        columns={view.columns}
+        canEdit={view.canEdit}
+        today={view.today}
+      />
       {view.openTaskId ? (
         <TaskDrawer
           task={view.openTask}
@@ -43,6 +45,8 @@ export default async function ProjectBoardPage({ params, searchParams }: PagePro
           canEdit={view.canEdit}
           canModerate={view.canModerate}
           currentUserId={view.currentUserId}
+          phases={view.phases}
+          currentPhaseId={view.openTaskPhaseId}
         />
       ) : null}
     </Suspense>

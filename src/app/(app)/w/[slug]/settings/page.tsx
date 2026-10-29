@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 
 import { LabelsManager } from "@/components/labels-manager";
+import { SavedTemplatesList } from "@/components/saved-templates-list";
 import { InviteForm, MembersManager, OpenInvitationsList, TransferOwnershipForm } from "@/components/members/members-manager";
 import { requireUser } from "@/lib/auth";
 import { listOpenInvitations } from "@/lib/invitations";
 import { can } from "@/lib/permissions";
-import { listLabels } from "@/lib/projects";
+import { listLabels, listSavedTemplates } from "@/lib/projects";
 import { getWorkspaceForUser, listWorkspaceMembers } from "@/lib/workspaces";
 import { DeleteWorkspaceDialog, RenameWorkspaceForm } from "./settings-forms";
 
@@ -15,11 +16,12 @@ export default async function WorkspaceSettingsPage({ params }: PageProps<"/w/[s
   const { slug } = await params;
   const workspace = await getWorkspaceForUser(slug);
   const canManageMembers = can(workspace.role, "manageMembers");
-  const [user, members, labels, invitations] = await Promise.all([
+  const [user, members, labels, invitations, savedTemplates] = await Promise.all([
     requireUser(),
     listWorkspaceMembers(workspace.id),
     listLabels(workspace.id),
     canManageMembers ? listOpenInvitations(workspace.id) : Promise.resolve([]),
+    listSavedTemplates(workspace.id),
   ]);
 
   return (
@@ -49,6 +51,21 @@ export default async function WorkspaceSettingsPage({ params }: PageProps<"/w/[s
           <p className="text-sm text-muted-foreground">Labels are shared by every project in this workspace.</p>
         </div>
         <LabelsManager workspaceId={workspace.id} labels={labels} canManage={workspace.role !== "viewer"} />
+      </section>
+
+      <section aria-labelledby="templates-heading" className="grid gap-4 border-t pt-6">
+        <div className="grid gap-1">
+          <h2 id="templates-heading" className="text-lg font-semibold">
+            Saved templates
+          </h2>
+          <p className="text-sm text-muted-foreground">Plans your team saved from its own projects.</p>
+        </div>
+        <SavedTemplatesList
+          workspaceId={workspace.id}
+          templates={savedTemplates}
+          currentUserId={user.id}
+          isAdmin={canManageMembers}
+        />
       </section>
 
       <section aria-labelledby="members-heading" className="grid gap-4 border-t pt-6">

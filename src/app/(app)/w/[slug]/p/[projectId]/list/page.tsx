@@ -33,6 +33,8 @@ export default async function ProjectListPage({ params, searchParams }: PageProp
           canEdit={view.canEdit}
           canModerate={view.canModerate}
           currentUserId={view.currentUserId}
+          phases={view.phases}
+          currentPhaseId={view.openTaskPhaseId}
         />
       ) : null}
     </Suspense>

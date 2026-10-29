@@ -11,12 +11,18 @@ function column(page: Page, name: string) {
 
 /** Creates a throwaway project so tests don't disturb each other or the seed data. */
 async function createProject(page: Page, name: string) {
-  await page.goto("/w/acme-studio");
-  await page.getByRole("button", { name: "New project" }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Project name").fill(name);
-  await dialog.getByRole("button", { name: "Create project" }).click();
+  await page.goto("/w/acme-studio/projects/new");
+  await page.getByRole("button", { name: /Start from scratch/ }).click();
+  await page.getByLabel("Project name").fill(name);
+  await page.getByRole("button", { name: "Create project" }).click();
   await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
+  // These tests work on the board, one tab over from the plan.
+  await projectTab(page, "Board").click();
+  await expect(page).toHaveURL(/\/board$/);
+}
+
+function projectTab(page: Page, name: string) {
+  return page.getByRole("navigation", { name: "Project views" }).getByRole("link", { name, exact: true });
 }
 
 async function quickAdd(page: Page, columnName: string, title: string) {
@@ -35,26 +41,26 @@ test("a member creates a project, adds tasks and moves one with the keyboard", a
   await signIn(page, "alice@example.com");
   await createProject(page, `Keyboard board ${Date.now()}`);
 
-  await quickAdd(page, "To do", "Draft brief");
-  await quickAdd(page, "To do", "Book venue");
+  await quickAdd(page, "Not started", "Draft brief");
+  await quickAdd(page, "Not started", "Book venue");
 
   // Keyboard drag: focus the card, Space to pick up, arrow right, Space to drop.
-  await column(page, "To do").getByRole("link", { name: "Draft brief" }).focus();
+  await column(page, "Not started").getByRole("link", { name: "Draft brief" }).focus();
   await page.keyboard.press("Space");
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Space");
-  await expect(column(page, "In progress").getByRole("link", { name: "Draft brief" })).toBeVisible();
+  await expect(column(page, "Doing").getByRole("link", { name: "Draft brief" })).toBeVisible();
 
   // The move was saved, not just shown.
   await page.reload();
-  await expect(column(page, "In progress").getByRole("link", { name: "Draft brief" })).toBeVisible();
-  await expect(column(page, "To do").getByRole("link", { name: "Book venue" })).toBeVisible();
+  await expect(column(page, "Doing").getByRole("link", { name: "Draft brief" })).toBeVisible();
+  await expect(column(page, "Not started").getByRole("link", { name: "Book venue" })).toBeVisible();
 });
 
 test("the card menu moves a task without dragging", async ({ page }) => {
   await signIn(page, "alice@example.com");
   await createProject(page, `Menu board ${Date.now()}`);
-  await quickAdd(page, "To do", "Send invoice");
+  await quickAdd(page, "Not started", "Send invoice");
 
   await page.getByRole("button", { name: "Move Send invoice" }).click();
   await page.getByRole("menuitem", { name: "Done" }).click();
@@ -67,9 +73,9 @@ test("a task is edited in the drawer, assigned, labelled and given a checklist",
   test.slow(); // many saves in a row, each waiting on the server
   await signIn(page, "alice@example.com");
   await createProject(page, `Drawer board ${Date.now()}`);
-  await quickAdd(page, "To do", "Plan launch");
+  await quickAdd(page, "Not started", "Plan launch");
 
-  await column(page, "To do").getByRole("link", { name: "Plan launch" }).click();
+  await column(page, "Not started").getByRole("link", { name: "Plan launch" }).click();
   const drawer = page.getByRole("dialog");
   await expect(drawer.getByRole("heading", { name: "Plan launch" })).toBeVisible();
 
@@ -97,7 +103,7 @@ test("a task is edited in the drawer, assigned, labelled and given a checklist",
 
   // Close and check the card shows the saved details.
   await page.keyboard.press("Escape");
-  const card = column(page, "To do").getByRole("listitem").filter({ hasText: "Plan launch" });
+  const card = column(page, "Not started").getByRole("listitem").filter({ hasText: "Plan launch" });
   await expect(card.getByText("High")).toBeVisible();
   await expect(card.getByText("Design")).toBeVisible();
   await expect(card.getByLabel("Assigned to Dave Mensah")).toBeVisible();
@@ -125,7 +131,7 @@ test("a stale edit is rejected instead of overwriting someone else's change", as
 
 test("search and filters narrow the board and carry over to the list view", async ({ page }) => {
   await signIn(page, "alice@example.com");
-  await page.goto(WEBSITE_PROJECT);
+  await page.goto(`${WEBSITE_PROJECT}/board`);
 
   await page.getByLabel("Search tasks").fill("pricing");
   await expect(page.getByText("1 matching task")).toBeVisible();
@@ -145,12 +151,12 @@ test("search and filters narrow the board and carry over to the list view", asyn
 
 test("viewers can read the board but get no editing controls", async ({ page }) => {
   await signIn(page, "carol@example.com");
-  await page.goto(WEBSITE_PROJECT);
+  await page.goto(`${WEBSITE_PROJECT}/board`);
 
   await expect(page.getByText("You can view this project but not change it.")).toBeVisible();
   await expect(page.getByRole("link", { name: "Write homepage copy" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add task" })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Settings", exact: true }).and(page.locator("[href$='/settings']"))).toHaveCount(1);
+  await expect(projectTab(page, "Settings")).toHaveCount(0);
 
   await page.getByRole("link", { name: "Write homepage copy" }).click();
   await expect(page.getByRole("dialog").getByRole("button", { name: "Save changes" })).toHaveCount(0);
@@ -173,7 +179,7 @@ test("archiving a project makes it read-only, and it can be restored", async ({ 
   const name = `Archive me ${Date.now()}`;
   await createProject(page, name);
 
-  await page.getByRole("link", { name: "Settings", exact: true }).last().click();
+  await projectTab(page, "Settings").click();
   await page.getByRole("button", { name: "Archive project" }).click();
   await expect(page.getByText("Project archived.")).toBeVisible();
   await expect(page.getByText(/This project is archived/)).toBeVisible();
@@ -186,14 +192,14 @@ test("archiving a project makes it read-only, and it can be restored", async ({ 
 test("deleting a column moves its tasks instead of losing them", async ({ page }) => {
   await signIn(page, "alice@example.com");
   await createProject(page, `Column delete ${Date.now()}`);
-  await quickAdd(page, "In progress", "Keep me");
+  await quickAdd(page, "Doing", "Keep me");
 
-  await page.getByRole("button", { name: "Column options for In progress" }).click();
+  await page.getByRole("button", { name: "Column options for Doing" }).click();
   await page.getByRole("menuitem", { name: "Delete column" }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Move tasks to").selectOption({ label: "Done" });
   await dialog.getByRole("button", { name: "Delete column" }).click();
 
-  await expect(page.getByRole("heading", { name: "In progress" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Doing" })).toHaveCount(0);
   await expect(column(page, "Done").getByRole("link", { name: "Keep me" })).toBeVisible();
 });
