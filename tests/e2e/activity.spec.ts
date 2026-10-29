@@ -34,7 +34,7 @@ test("assigning and mentioning someone lands in their inbox, and opening it mark
   const dave = await (await browser.newContext()).newPage();
   await signIn(dave, "dave@example.com");
   await expect(dave.getByRole("link", { name: /Inbox \d+ unread/ })).toBeVisible();
-  await dave.getByRole("link", { name: /Inbox/ }).click();
+  await dave.getByRole("link", { name: /^Inbox( \d+ unread)?$/ }).click();
   await expect(dave.getByRole("button", { name: new RegExp(`Alice Adeyemi assigned you to ${title}`) })).toBeVisible();
   await expect(dave.getByRole("button", { name: new RegExp(`Alice Adeyemi mentioned you in ${title}`) })).toBeVisible();
 

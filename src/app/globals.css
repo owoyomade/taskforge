@@ -72,14 +72,14 @@
   --muted-foreground: oklch(0.5 0.03 265);
   --accent: oklch(0.94 0.035 270);
   --accent-foreground: oklch(0.35 0.14 268);
-  --destructive: oklch(0.58 0.21 22);
+  --destructive: oklch(0.53 0.21 22);
   --border: oklch(0.91 0.012 270);
   --input: oklch(0.88 0.015 270);
   --ring: oklch(0.6 0.18 268);
   --sun: oklch(0.83 0.16 80);
   --sun-foreground: oklch(0.32 0.07 70);
   --leaf: oklch(0.6 0.11 175);
-  --ember: oklch(0.58 0.21 22);
+  --ember: oklch(0.53 0.21 22);
   --chart-1: oklch(0.53 0.22 268);
   --chart-2: oklch(0.6 0.11 175);
   --chart-3: oklch(0.83 0.16 80);
@@ -112,14 +112,14 @@
     --muted-foreground: oklch(0.72 0.03 265);
     --accent: oklch(0.3 0.06 268);
     --accent-foreground: oklch(0.9 0.06 268);
-    --destructive: oklch(0.68 0.18 22);
+    --destructive: oklch(0.74 0.16 22);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.7 0.16 268);
     --sun: oklch(0.83 0.15 80);
     --sun-foreground: oklch(0.25 0.05 70);
     --leaf: oklch(0.7 0.11 175);
-    --ember: oklch(0.68 0.18 22);
+    --ember: oklch(0.74 0.16 22);
     --sidebar: oklch(0.14 0.03 265);
     --sidebar-foreground: oklch(0.93 0.015 270);
     --sidebar-primary: oklch(0.83 0.15 80);
@@ -140,6 +140,18 @@
   }
   html {
     @apply font-sans;
+  }
+  /* People who turn on "reduce motion" (some get dizzy or distracted by
+     animation) get instant changes instead of slides, fades and spins. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
   h1,
   h2,

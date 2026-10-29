@@ -46,18 +46,26 @@ of moving the card. Every card also has a "Move" menu.
 - **Authorization lives in the database.** RLS policies decide what every
   query can see or change. Server Actions also check roles first, but only to
   give clear error messages; they are not what keeps data safe.
-- **No service-role key in Phase 1.** Every query runs as the signed-in user.
-  When a later feature needs elevated access, it will be isolated in a
-  server-only module.
+- **No service-role key at all.** Every query runs as the signed-in user.
+  Jobs that need more rights (the daily retention purge) run inside the
+  database via pg_cron. If a later feature needs elevated access from the
+  app, it must be isolated in a server-only module.
 - **Writes that must happen together go through a Postgres function.**
   `create_workspace()` creates the workspace and its owner membership in one
   transaction. There is deliberately no INSERT policy on those tables.
 - **Workspaces are addressed by slug in the URL** (`/w/acme-studio-k3x9qa`).
   The random suffix avoids name clashes and doesn't reveal which names exist.
   Non-members get a 404, not a 403, so slugs can't be probed.
-- **Cache Components is off** (see `next.config.ts`). Nearly every page
-  depends on the signed-in user, so there's little to prerender. Revisit
-  during Phase 5 performance work.
+- **Cache Components is off, and every page renders per request** (see
+  `next.config.ts` and the root layout). Nearly every page depends on the
+  signed-in user, and the Content Security Policy needs a fresh nonce on
+  each page's scripts, which a page built ahead of time can't have.
+- **Permission checks run once per query, not once per row.** Read
+  policies check `project_id in (select visible_project_ids())`. Postgres
+  works out the list of visible projects once and compares each row with
+  it. The earlier per-row function call made workspace-wide queries
+  30 to 70 times slower. A pgTAP test keeps this rule identical to
+  `project_access_for()`, which write checks use.
 - **Proxy (formerly "middleware") only refreshes the session** and does
   optimistic redirects. It is not a security boundary.
 
@@ -78,7 +86,9 @@ src/
   lib/                 server data access (auth.ts, workspaces.ts, profiles.ts),
                        validation, permissions, helpers
     supabase/          Supabase clients and generated database types
-  proxy.ts             session refresh on every request
+  app/api/health/      uptime check (app + database)
+  instrumentation.ts   one JSON log line per server error
+  proxy.ts             session refresh and Content Security Policy on every request
 supabase/
   migrations/          SQL migrations (schema, RLS, storage policies)
   tests/database/      pgTAP tests for RLS and role rules
@@ -193,8 +203,11 @@ promote the new owner first, then demote the old one, in one transaction.
 | Activity history per project and per workspace, CSV export for admins | 4b | Built |
 | Timeline view; overview widgets for phases, workload and recent activity | 4b | Built |
 | Email notifications and due-date reminders | Later | Need an email provider and a scheduled job |
-| Milestones, dashboards, notifications, audit history | 4 | Planned |
-| Security review, performance, accessibility audit, deployment, monitoring | 5 | Planned |
+| Security headers and CSP, database-wide security tests, dependency audit | 5 | Built |
+| Foreign key indexes, once-per-query permission checks | 5 | Built |
+| Automated WCAG 2.2 AA checks (light and dark), skip link, reduced motion | 5 | Built |
+| Health check, error logging, daily retention job, file clean-up on delete | 5 | Built |
+| Deployment, monitoring and backup guide ([deployment.md](deployment.md)) | 5 | Written; deploying needs your Supabase and Vercel accounts |
 
 ## Threat model (summary)
 
@@ -206,9 +219,11 @@ promote the new owner first, then demote the old one, in one transaction.
 | Account enumeration | Sign-up and password-reset responses are the same whether or not the email exists. |
 | Open redirect via `?next=` | `safeRedirectPath` only allows same-site paths. |
 | Malicious uploads | Private bucket, 2 MB limit, PNG/JPEG/WebP only (checked by file content, not name), uploads confined to the user's own folder; SVG rejected. |
-| XSS | React escapes output; no raw HTML rendering. Rich text (Phase 2) will be sanitized. |
+| XSS | React escapes output and nothing renders raw HTML. As a second layer, a Content Security Policy only lets scripts carrying the page's per-request nonce run, so an injected `<script>` is refused by the browser. |
+| Clickjacking, MIME sniffing | `frame-ancestors 'none'` and `X-Frame-Options: DENY`; `X-Content-Type-Options: nosniff`; HSTS; a strict Referrer-Policy so invite tokens in URLs never leak to other sites. |
+| A future table or function skipping the rules | `hardening.test.sql` fails if any table lacks RLS, signed-out visitors get any table or privileged function, a SECURITY DEFINER function lacks a fixed search_path, a bucket is public or unlimited, or a foreign key lacks an index. |
 | CSRF | Server Actions only accept POST from the same origin (Next.js checks the Origin header); auth cookies are SameSite=Lax. |
-| Leaked secrets | No secret keys in Phase 1; `.env*` is git-ignored; only `NEXT_PUBLIC_` values reach the browser and they are safe by design. |
+| Leaked secrets | The app uses no secret or service-role key at all; `.env*` and database backups are git-ignored; only `NEXT_PUBLIC_` values reach the browser and they are safe by design. |
 | Abuse / cost | Supabase Auth's built-in rate limits on sign-in and emails; a 10-owned-workspace cap per user; 200 projects per workspace. Invitation rate limits come with invitations in Phase 3. |
 | Invite links leaked or forwarded | Only a SHA-256 hash of the token is stored; accepting requires being signed in with the invited, verified email; links expire after 7 days and are single use. |
 | Invitation spam | 20 invitations per workspace per hour, 100 open at once. |
@@ -234,9 +249,11 @@ contents.
 Who can read it: owners and admins see everything in their workspace;
 other members see the history of projects they can currently see.
 
-Retention: events are kept for the life of the workspace and deleted with
-it. Admins can export the latest 5,000 events as CSV beforehand. A
-time-based retention job (for example, keep 12 months) is a Phase 5 item.
+Retention: a daily job (pg_cron, 03:17 UTC) deletes events older than 12
+months, notifications read more than 90 days ago (and any older than 12
+months), and invitations that stopped working more than 90 days ago.
+Everything is also deleted with its workspace. Admins can export the
+latest 5,000 events as CSV at any time.
 
 ## Free-tier constraints
 
@@ -254,9 +271,8 @@ Guardrails already in place: 2 MB avatar limit, old avatars deleted on
 replace, workspace cap per user, 5 MB per attachment and 100 MB of
 attachments per workspace.
 
-Known gap: deleting a whole project removes its attachment records, but the
-files stay in storage. A cleanup job for orphaned files belongs with the
-retention work in Phase 5.
+Deleting a project or workspace removes its attachment files from storage
+first, then the records, so no orphaned files use up the quota.
 
 ## Likely paid needs later
 

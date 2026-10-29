@@ -2,7 +2,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function WorkspaceLoading() {
   return (
-    <div className="mx-auto grid max-w-4xl gap-10" aria-busy="true" aria-label="Loading workspace">
+    // role="status" makes screen readers announce the loading message; the
+    // grey placeholder shapes themselves mean nothing when read aloud.
+    <div className="mx-auto grid max-w-4xl gap-10" role="status" aria-busy="true">
+      <span className="sr-only">Loading…</span>
       <div className="grid gap-3">
         <Skeleton className="h-9 w-64" />
         <Skeleton className="h-5 w-40" />

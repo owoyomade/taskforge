@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
+import { removeAttachmentFiles } from "@/lib/attachment-files";
 import { toUserMessage } from "@/lib/db-errors";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { evenPositions, positionForIndex } from "@/lib/ordering";
@@ -114,6 +115,10 @@ export async function deleteProject(_previous: FormState, formData: FormData): P
       message: "The name you typed doesn't match.",
       fieldErrors: { confirmName: [`Type ${project.name} to confirm.`] },
     };
+  }
+
+  if (!(await removeAttachmentFiles({ projectId }))) {
+    return { status: "error", message: "Some attached files couldn't be deleted, so the project was kept. Try again." };
   }
 
   const { data, error } = await supabase.from("projects").delete().eq("id", projectId).select("id");

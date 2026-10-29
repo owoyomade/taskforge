@@ -727,6 +727,9 @@ isOneToOne: false
 "has_workspace_role":
 { Args: { "allowed_roles": (Database["public"]['Enums']["workspace_role"])[],"target_workspace": string }; Returns: boolean
                            },
+"health_check":
+{ Args: Record<PropertyKey, never>; Returns: boolean
+                           },
 "invitation_preview":
 { Args: { "raw_token": string }; Returns: {
               "email_hint": string,"invitation_id": string,"inviter_name": string,"role": Database["public"]['Enums']["workspace_role"],"status": string,"workspace_name": string
@@ -740,6 +743,9 @@ isOneToOne: false
               "expires_at": string,"invitation_id": string,"inviter_name": string,"role": Database["public"]['Enums']["workspace_role"],"workspace_name": string
             }[]
                            },
+"my_workspace_ids":
+{ Args: Record<PropertyKey, never>; Returns: string[]
+                           },
 "notify":
 { Args: { "dedupe": string,"kind": Database["public"]['Enums']["notification_type"],"recipient": string,"target_comment": string,"target_task": string }; Returns: undefined
                            },
@@ -748,6 +754,9 @@ isOneToOne: false
                            },
 "project_access_for":
 { Args: { "target_project": string,"target_user": string }; Returns: string
+                           },
+"purge_expired_records":
+{ Args: Record<PropertyKey, never>; Returns: Json
                            },
 "record_audit":
 { Args: { "details": Json,"event": string,"target_project": string,"target_task": string,"target_workspace": string }; Returns: undefined
@@ -760,6 +769,12 @@ isOneToOne: false
                            },
 "transfer_ownership":
 { Args: { "new_owner": string,"target_workspace": string }; Returns: undefined
+                           },
+"visible_project_ids":
+{ Args: Record<PropertyKey, never>; Returns: string[]
+                           },
+"visible_project_ids_for":
+{ Args: { "target_user": string }; Returns: string[]
                            },
 "workspace_role_for":
 { Args: { "target_workspace": string }; Returns: Database["public"]['Enums']["workspace_role"]

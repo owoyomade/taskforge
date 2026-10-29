@@ -30,8 +30,9 @@ export function JourneyStrip({ phases, compact = false, planHref }: JourneyStrip
       style={{ gridTemplateColumns: `repeat(${phases.length}, minmax(0, 1fr))` }}
     >
       {phases.map((phase, index) => {
-        const label = `Phase ${index + 1} of ${phases.length}: ${phase.name}. ${
-          phase.status === "done" ? "Done" : phase.status === "current" ? "You are here" : "Coming up"
+        // Read out after the name: "Build, phase 3 of 4, coming up, 0 of 1 tasks done, due Nov 20."
+        const details = `, phase ${index + 1} of ${phases.length}, ${
+          phase.status === "done" ? "done" : phase.status === "current" ? "you are here" : "coming up"
         }${phase.total > 0 ? `, ${phase.done} of ${phase.total} tasks done` : ", no tasks yet"}${
           phase.targetDate ? `, ${phase.isOverdue ? "overdue since" : "due"} ${formatDate(phase.targetDate)}` : ""
         }.`;
@@ -60,8 +61,15 @@ export function JourneyStrip({ phases, compact = false, planHref }: JourneyStrip
                 {phase.status === "done" && !compact ? <CheckIcon className="size-3.5" strokeWidth={3} /> : null}
               </span>
             </span>
-            {compact ? null : (
-              <span className="mt-1.5 grid justify-items-center gap-0.5 px-1 text-center" aria-hidden="true">
+            {compact ? (
+              <span className="sr-only">
+                {phase.name}
+                {details}
+              </span>
+            ) : (
+              // The visible name is part of the spoken name; the short "1/4, Oct 22"
+              // line is hidden from screen readers because the details say it in words.
+              <span className="mt-1.5 grid justify-items-center gap-0.5 px-1 text-center">
                 <span
                   className={cn(
                     "line-clamp-2 text-xs leading-tight font-semibold",
@@ -69,8 +77,12 @@ export function JourneyStrip({ phases, compact = false, planHref }: JourneyStrip
                   )}
                 >
                   {phase.name}
+                  <span className="sr-only">{details}</span>
                 </span>
-                <span className={cn("text-[0.7rem] text-muted-foreground", phase.isOverdue && "font-medium text-ember")}>
+                <span
+                  aria-hidden="true"
+                  className={cn("text-[0.7rem] text-muted-foreground", phase.isOverdue && "font-medium text-ember")}
+                >
                   {phase.total > 0 ? `${phase.done}/${phase.total}` : "No tasks"}
                   {phase.targetDate ? `, ${formatDate(phase.targetDate)}` : ""}
                 </span>
@@ -84,15 +96,12 @@ export function JourneyStrip({ phases, compact = false, planHref }: JourneyStrip
             {planHref && !compact ? (
               <Link
                 href={`${planHref}#phase-${phase.id}`}
-                aria-label={label}
                 className="block rounded-lg pb-1 outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50"
               >
                 {stop}
               </Link>
             ) : (
-              <div aria-label={label} role="group">
-                {stop}
-              </div>
+              <div>{stop}</div>
             )}
           </li>
         );

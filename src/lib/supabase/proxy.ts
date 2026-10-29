@@ -18,8 +18,17 @@ function matchesPrefix(pathname: string, prefixes: string[]) {
  * This is a convenience, not the security boundary: pages and actions still
  * check the user themselves, and RLS checks again in the database.
  */
-export async function updateSession(request: NextRequest) {
-  let response = NextResponse.next({ request });
+export async function updateSession(request: NextRequest, extraRequestHeaders: Record<string, string> = {}) {
+  // Pass the (possibly refreshed) cookies plus any extra headers on to the page.
+  const forward = () => {
+    const headers = new Headers(request.headers);
+    for (const [name, value] of Object.entries(extraRequestHeaders)) {
+      headers.set(name, value);
+    }
+    return NextResponse.next({ request: { headers } });
+  };
+
+  let response = forward();
 
   const supabase = createServerClient<Database>(
     publicEnv.NEXT_PUBLIC_SUPABASE_URL,
@@ -35,7 +44,7 @@ export async function updateSession(request: NextRequest) {
           for (const { name, value } of cookiesToSet) {
             request.cookies.set(name, value);
           }
-          response = NextResponse.next({ request });
+          response = forward();
           for (const { name, value, options } of cookiesToSet) {
             response.cookies.set(name, value, options);
           }

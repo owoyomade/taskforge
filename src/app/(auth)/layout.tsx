@@ -25,7 +25,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
               className="w-56 rounded-xl bg-primary-foreground/10 p-3"
               style={{ transform: `translateY(${(columnIndex - 1) * 28}px)` }}
             >
-              <p className="mb-3 px-1 text-sm font-medium text-primary-foreground/80">{column}</p>
+              <p className="mb-3 px-1 text-sm font-medium text-primary-foreground">{column}</p>
               <div className="grid gap-2">
                 {cards.map((card) => (
                   <div key={card} className="rounded-lg bg-card px-3 py-3 text-sm text-card-foreground shadow-sm">

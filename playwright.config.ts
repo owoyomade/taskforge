@@ -23,8 +23,18 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "desktop", use: { ...devices["Desktop Chrome"] }, testIgnore: /mobile\.spec\.ts/ },
+    { name: "desktop", use: { ...devices["Desktop Chrome"] }, testIgnore: /(mobile|hardening)\.spec\.ts/ },
     { name: "mobile", use: { ...devices["Pixel 7"] }, testMatch: /mobile\.spec\.ts/ },
+    // Accessibility scans and security checks run once the feature tests
+    // finish. Scanning ~30 pages is CPU-heavy, and running it alongside the
+    // feature tests slowed the local server enough to make them flaky. It
+    // also spreads out sign-ins under Supabase's limit of 30 per 5 minutes.
+    {
+      name: "hardening",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /hardening\.spec\.ts/,
+      dependencies: ["desktop", "mobile"],
+    },
   ],
   webServer: {
     command: "npm run build && npx next start --port 3100",

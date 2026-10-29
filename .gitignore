@@ -57,3 +57,6 @@ next-env.d.ts
 !.vscode/extensions.json
 .idea/
 Thumbs.db
+
+# database backups contain personal data; never commit them
+/backups/

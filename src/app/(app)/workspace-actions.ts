@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { removeAttachmentFiles } from "@/lib/attachment-files";
 import { requireUser } from "@/lib/auth";
 import { toUserMessage } from "@/lib/db-errors";
 import { textField, validationError, type FormState } from "@/lib/form-state";
@@ -106,6 +107,12 @@ export async function deleteWorkspace(_previous: FormState, formData: FormData):
       message: "The name you typed doesn't match.",
       fieldErrors: { confirmName: [`Type ${auth.workspace.name} to confirm.`] },
     };
+  }
+
+  // Only owners can delete a workspace, and owners manage every project in
+  // it, so they're allowed to remove all of its files.
+  if (!(await removeAttachmentFiles({ workspaceId: auth.workspace.id }))) {
+    return { status: "error", message: "Some attached files couldn't be deleted, so the workspace was kept. Try again." };
   }
 
   const supabase = await createClient();

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Onest } from "next/font/google";
+import { connection } from "next/server";
 
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
@@ -16,7 +17,11 @@ export const metadata: Metadata = {
   description: "Pick a plan, set a finish date, and always know what to do next.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // Render every page per request. Pages built ahead of time would have no
+  // CSP nonce on their scripts, and the browser would refuse to run them.
+  await connection();
+
   return (
     <html lang="en" className={`${onest.variable} h-full antialiased`}>
       {/* Browser extensions (e.g. ColorZilla's cz-shortcut-listen) add attributes

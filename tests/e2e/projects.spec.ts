@@ -21,6 +21,15 @@ async function createProject(page: Page, name: string) {
   await expect(page).toHaveURL(/\/board$/);
 }
 
+/**
+ * Resolves when the next Server Action (a save) gets its reply. Moves show
+ * on the board instantly and save in the background, so a test that reloads
+ * straight away could cancel the save; start waiting before the action.
+ */
+function nextSave(page: Page) {
+  return page.waitForResponse((response) => response.request().method() === "POST" && Boolean(response.request().headers()["next-action"]));
+}
+
 function projectTab(page: Page, name: string) {
   return page.getByRole("navigation", { name: "Project views" }).getByRole("link", { name, exact: true });
 }
@@ -46,12 +55,14 @@ test("a member creates a project, adds tasks and moves one with the keyboard", a
 
   // Keyboard drag: focus the card, Space to pick up, arrow right, Space to drop.
   await column(page, "Not started").getByRole("link", { name: "Draft brief" }).focus();
+  const saved = nextSave(page);
   await page.keyboard.press("Space");
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Space");
   await expect(column(page, "Doing").getByRole("link", { name: "Draft brief" })).toBeVisible();
 
   // The move was saved, not just shown.
+  await saved;
   await page.reload();
   await expect(column(page, "Doing").getByRole("link", { name: "Draft brief" })).toBeVisible();
   await expect(column(page, "Not started").getByRole("link", { name: "Book venue" })).toBeVisible();
@@ -63,8 +74,10 @@ test("the card menu moves a task without dragging", async ({ page }) => {
   await quickAdd(page, "Not started", "Send invoice");
 
   await page.getByRole("button", { name: "Move Send invoice" }).click();
+  const saved = nextSave(page);
   await page.getByRole("menuitem", { name: "Done" }).click();
   await expect(column(page, "Done").getByRole("link", { name: "Send invoice" })).toBeVisible();
+  await saved;
   await page.reload();
   await expect(column(page, "Done").getByRole("link", { name: "Send invoice" })).toBeVisible();
 });

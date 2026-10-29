@@ -8,11 +8,13 @@ separate.
 Built with Next.js, TypeScript, Tailwind CSS, shadcn/ui and Supabase
 (Postgres, Auth, Storage, Row Level Security).
 
-> **Status:** Phase 4 of 5 complete. Guided planning with 30 templates,
-> phases shown as a journey, a "Do next" home page, Plan, Board, List and
-> Timeline views, an in-app notification inbox, activity history with CSV
-> export, invitations, comments and attachments. Phase 5 (hardening,
-> performance, deployment) comes next. See [docs/architecture.md](docs/architecture.md).
+> **Status:** all five build phases complete. Guided planning with 30
+> templates, phases shown as a journey, a "Do next" home page, Plan, Board,
+> List and Timeline views, notifications, activity history, invitations,
+> comments and attachments, plus security headers, accessibility checks,
+> a health check and data retention. To put it online, follow
+> [docs/deployment.md](docs/deployment.md). Design notes are in
+> [docs/architecture.md](docs/architecture.md).
 
 ## Requirements
 
@@ -48,6 +50,7 @@ Open http://localhost:3000.
 | App | http://localhost:3000 |
 | Supabase Studio (database browser) | http://127.0.0.1:54323 |
 | Mailpit (catches every email the app sends) | http://127.0.0.1:54324 |
+| Health check | http://localhost:3000/api/health |
 
 ### Demo accounts
 
@@ -86,8 +89,8 @@ address.
 | `npm run check` | Typecheck, lint, unit tests and production build |
 | `npm run test` | Unit and component tests (Vitest) |
 | `npm run test:db` | Database security tests (pgTAP); needs `db:start` |
-| `npm run test:e2e` | Browser tests (Playwright) against a production build; needs `db:start` and `db:reset` |
-| `npm run test:e2e:fresh` | Resets the local database, then runs the browser tests |
+| `npm run test:e2e` | Browser tests (Playwright) against a production build, then accessibility and security checks; needs `db:start` and `db:reset` |
+| `npm run test:e2e:fresh` | Resets the local database, then runs the browser tests (use this one; the tests expect fresh demo data) |
 | `npm run db:reset` | Rebuild the local database from migrations and seed data |
 | `npm run db:types` | Regenerate TypeScript types from the local database |
 

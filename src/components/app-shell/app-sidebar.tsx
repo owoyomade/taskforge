@@ -93,7 +93,7 @@ function SidebarContents({ workspace, workspaces, profile, projects, unreadCount
         ))}
       </nav>
       <div className="grid min-h-0 gap-1">
-        <h2 className="px-2.5 text-xs font-semibold text-sidebar-foreground/50">Projects</h2>
+        <h2 className="px-2.5 text-xs font-semibold text-sidebar-foreground/70">Projects</h2>
         {projects.length === 0 ? (
           <p className="px-2.5 py-1 text-sm text-sidebar-foreground/60">No projects yet</p>
         ) : (

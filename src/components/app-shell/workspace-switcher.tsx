@@ -22,12 +22,16 @@ type WorkspaceSwitcherProps = {
 export function WorkspaceSwitcher({ current, workspaces }: WorkspaceSwitcherProps) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        aria-label={`Current workspace: ${current.name}. Switch workspace`}
-        className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left text-sidebar-foreground outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-sidebar-ring/60"
-      >
+      {/* The extra words are screen-reader-only text rather than an
+          aria-label, so the spoken name includes the visible name exactly
+          (voice-control users can say "click Acme Studio"). */}
+      <DropdownMenuTrigger className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left text-sidebar-foreground outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-sidebar-ring/60">
         <WorkspaceMark name={current.name} />
-        <span className="min-w-0 flex-1 truncate font-heading font-semibold">{current.name}</span>
+        <span className="min-w-0 flex-1 truncate font-heading font-semibold">
+          <span className="sr-only">Current workspace: </span>
+          {current.name}
+          <span className="sr-only">. Switch workspace</span>
+        </span>
         <ChevronsUpDownIcon className="size-4 text-sidebar-foreground/60" />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-64">

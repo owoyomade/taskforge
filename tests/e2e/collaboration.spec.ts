@@ -97,6 +97,8 @@ test("comments support mentions, editing and deleting", async ({ page }) => {
 });
 
 test("files attach, download through an access check, and unsafe types are refused", async ({ page }) => {
+  // Two uploads, a download and a delete: more than 30 seconds on a busy machine.
+  test.slow();
   await signIn(page, "alice@example.com");
   await page.goto(PRICING_TASK);
   const drawer = page.getByRole("dialog");
