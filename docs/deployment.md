@@ -79,6 +79,7 @@ real product would use its own domain and an email service.
    | `SMTP_PASSWORD` | The Gmail app password |
    | `EMAIL_FROM` | `Taskforge <your.address@gmail.com>` |
    | `CRON_SECRET` | Another random value (same command as above) |
+   | `DEMO_PASSWORD` | Another random value. Turns on the "Try the demo" button; visitors never see it |
 
    Never add `DATABASE_OWNER_URL` to Vercel. The app doesn't need it, and
    it can do anything to the database.
@@ -89,8 +90,10 @@ real product would use its own domain and an email service.
    `NEXT_PUBLIC_SITE_URL`, update that variable and redeploy: it's built
    into the app, and the emailed links use it.
 
-The daily clean-up (`vercel.json`) is picked up automatically. Vercel calls
-`/api/cron/purge` at 03:17 UTC with your `CRON_SECRET`.
+The nightly job (`vercel.json`) is picked up automatically. Vercel calls
+`/api/cron/purge` at 03:17 UTC with your `CRON_SECRET`; it deletes expired
+records and rebuilds the demo workspace. The first click on **Try the
+demo** builds the demo, so there's nothing to set up for it.
 
 ## 4. Check the live site
 

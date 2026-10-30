@@ -1,4 +1,7 @@
+import Link from "next/link";
+
 import { AppSidebar } from "@/components/app-shell/app-sidebar";
+import { isDemoSession } from "@/lib/demo";
 import { countUnreadNotifications } from "@/lib/notifications";
 import { getMyProfile } from "@/lib/profiles";
 import { listProjects } from "@/lib/projects";
@@ -15,9 +18,10 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
     listMyWorkspaces(),
     getMyProfile(),
   ]);
-  const [projects, unreadCount] = await Promise.all([
+  const [projects, unreadCount, isDemo] = await Promise.all([
     listProjects(workspace.id),
     countUnreadNotifications(workspace.id),
+    isDemoSession(),
   ]);
 
   return (
@@ -38,6 +42,17 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
         unreadCount={unreadCount}
       />
       <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 px-4 py-8 outline-none sm:px-8 lg:px-12">
+        {isDemo ? (
+          <p className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-accent px-4 py-2.5 text-sm text-accent-foreground">
+            <span>
+              You&apos;re exploring a shared demo. Anything you change resets every night, and uploads and invitations are
+              turned off.
+            </span>
+            <Link href="/sign-up" className="font-semibold underline underline-offset-4">
+              Create your own free account
+            </Link>
+          </p>
+        ) : null}
         {children}
       </main>
     </div>

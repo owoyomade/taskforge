@@ -41,7 +41,9 @@ export default defineConfig({
     url: E2E_BASE_URL,
     // The suite signs in many times from one address; raise (not remove) the per-address limits.
     env: { AUTH_IP_LIMIT_MULTIPLIER: "20" },
-    reuseExistingServer: !process.env.CI,
+    // Always a fresh build: reusing a server left running from an earlier
+    // run would quietly test old code.
+    reuseExistingServer: false,
     timeout: 240_000,
   },
 });

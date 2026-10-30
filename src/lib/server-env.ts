@@ -18,6 +18,7 @@ const serverEnvSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   EMAIL_FROM: z.string().min(3),
+  // DEMO_PASSWORD (16+ characters) turns on the "Try the demo" button; it's read in demo.ts.
   // Raises the per-address sign-in limits (see sign-in-limits.ts). Leave unset in production.
   AUTH_IP_LIMIT_MULTIPLIER: z.coerce.number().int().min(1).max(100).default(1),
 });

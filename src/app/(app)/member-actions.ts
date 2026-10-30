@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/auth";
 import { toUserMessage } from "@/lib/db-errors";
 import { publicEnv } from "@/lib/env";
 import { attemptAsCurrentUser } from "@/lib/db";
+import { DEMO_BLOCKED, isDemoSession } from "@/lib/demo";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { can, grantableRoles, INVITABLE_ROLES } from "@/lib/permissions";
 import { NO_PERMISSION, type ActionResult } from "@/lib/project-access";
@@ -33,6 +34,7 @@ async function myRoleIn(workspaceId: string) {
 }
 
 export async function inviteMember(_previous: InviteState, formData: FormData): Promise<InviteState> {
+  if (await isDemoSession()) return { status: "error", message: DEMO_BLOCKED };
   const values = { email: textField(formData, "email"), role: textField(formData, "role") };
   const parsed = inviteSchema.safeParse(values);
   if (!parsed.success) return validationError(parsed.error, values);
@@ -137,6 +139,7 @@ export async function removeMember(workspaceId: string, userId: string): Promise
 }
 
 export async function leaveWorkspace(workspaceId: string): Promise<ActionResult> {
+  if (await isDemoSession()) return { ok: false, message: DEMO_BLOCKED };
   const [user, workspace] = await Promise.all([requireUser(), myRoleIn(workspaceId)]);
   if (!workspace) return NO_PERMISSION;
 
@@ -151,6 +154,7 @@ export async function leaveWorkspace(workspaceId: string): Promise<ActionResult>
 }
 
 export async function transferOwnership(_previous: FormState, formData: FormData): Promise<FormState> {
+  if (await isDemoSession()) return { status: "error", message: DEMO_BLOCKED };
   const newOwnerId = textField(formData, "newOwnerId");
   if (!idSchema.safeParse(newOwnerId).success) {
     return { status: "error", message: "Choose who should become the owner.", fieldErrors: { newOwnerId: ["Choose a member."] } };

@@ -1,9 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
 
 import { purgeExpiredRecords } from "@/lib/db";
+import { demoEnabled, resetDemo } from "@/lib/demo";
 
 /**
- * GET /api/cron/purge: the daily data clean-up (see the retention migration).
+ * GET /api/cron/purge: the nightly maintenance. It deletes expired records
+ * (see the retention migration) and, when the demo is on, rebuilds the
+ * demo workspace.
  *
  * Vercel Cron calls this once a day (vercel.json) and sends the project's
  * CRON_SECRET as a bearer token. Anyone else is refused, and without a
@@ -21,6 +24,7 @@ export async function GET(request: Request) {
   }
 
   const removed = await purgeExpiredRecords();
-  console.log(JSON.stringify({ level: "info", context: "cron.purge", removed }));
-  return Response.json({ removed }, { headers: { "Cache-Control": "no-store" } });
+  if (demoEnabled()) await resetDemo();
+  console.log(JSON.stringify({ level: "info", context: "cron.purge", removed, demoReset: demoEnabled() }));
+  return Response.json({ removed, demoReset: demoEnabled() }, { headers: { "Cache-Control": "no-store" } });
 }

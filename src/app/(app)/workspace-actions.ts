@@ -7,6 +7,7 @@ import { attachmentPathsIn, removeStoredAttachments } from "@/lib/attachment-fil
 import { requireUser } from "@/lib/auth";
 import { asDatabaseError, attemptAsCurrentUser, withUser } from "@/lib/db";
 import { toUserMessage } from "@/lib/db-errors";
+import { DEMO_BLOCKED, isDemoSession } from "@/lib/demo";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { can, type WorkspaceCapability } from "@/lib/permissions";
 import { workspaceSlug } from "@/lib/slug";
@@ -85,6 +86,7 @@ export async function renameWorkspace(_previous: FormState, formData: FormData):
 }
 
 export async function deleteWorkspace(_previous: FormState, formData: FormData): Promise<FormState> {
+  if (await isDemoSession()) return { status: "error", message: DEMO_BLOCKED };
   const auth = await authorizeWorkspaceAction(formData, "deleteWorkspace");
   if (!auth.ok) {
     return { status: "error", message: auth.message };

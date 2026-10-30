@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 
 import { authErrorMessage, TOO_MANY_ATTEMPTS } from "@/lib/auth-errors";
 import { auth } from "@/lib/better-auth";
+import { DEMO_EMAIL, demoEnabled, demoIsReady, isDemoEmail, resetDemo } from "@/lib/demo";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 import { passwordAttemptsAllowed, recordWrongPassword, takeAttempt } from "@/lib/sign-in-limits";
@@ -42,6 +43,10 @@ export async function signIn(_previous: FormState, formData: FormData): Promise<
   if (!parsed.success) {
     return validationError(parsed.error, values);
   }
+  if (isDemoEmail(parsed.data.email)) {
+    // The demo's password is secret, and guesses here mustn't be able to lock everyone out of it.
+    return { status: "error", message: "Use the Try the demo button to explore the demo.", values };
+  }
   if (!(await takeAttempt("sign-in")) || !(await passwordAttemptsAllowed(parsed.data.email))) {
     return { status: "error", message: TOO_MANY_ATTEMPTS, values };
   }
@@ -72,7 +77,8 @@ export async function requestPasswordReset(_previous: FormState, formData: FormD
 
   try {
     // The emailed link opens /reset-password?token=... (Better Auth checks the token first).
-    await auth.api.requestPasswordReset({ body: { email: parsed.data.email, redirectTo: "/reset-password" }, headers: await headers() });
+    // The shared demo account never gets one (its address doesn't receive mail anyway).
+    if (!isDemoEmail(parsed.data.email)) await auth.api.requestPasswordReset({ body: { email: parsed.data.email, redirectTo: "/reset-password" }, headers: await headers() });
   } catch (error) {
     // Logged, but the answer stays the same so the form can't reveal which emails have accounts.
     authErrorMessage(error);
@@ -106,4 +112,25 @@ export async function resetPassword(_previous: FormState, formData: FormData): P
 export async function signOut(): Promise<void> {
   await auth.api.signOut({ headers: await headers() });
   redirect("/sign-in");
+}
+
+/**
+ * "Try the demo": signs the visitor in to the shared demo account. The
+ * password never leaves the server. The first click on a new site builds
+ * the demo workspace.
+ */
+export async function startDemo(): Promise<void> {
+  const password = process.env.DEMO_PASSWORD;
+  if (!password || !demoEnabled() || !(await takeAttempt("sign-in"))) {
+    redirect("/sign-in?demo=unavailable");
+  }
+
+  try {
+    if (!(await demoIsReady())) await resetDemo();
+    await auth.api.signInEmail({ body: { email: DEMO_EMAIL, password }, headers: await headers() });
+  } catch (error) {
+    authErrorMessage(error);
+    redirect("/sign-in?demo=unavailable");
+  }
+  redirect("/dashboard");
 }

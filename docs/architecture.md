@@ -57,6 +57,10 @@ of moving the card. Every card also has a "Move" menu.
   `auth.uid()`. A query that skipped that step would fail rather than see
   everyone's data. Better Auth uses a second login, `taskforge_auth`, that
   can reach only the `auth` schema (accounts, password hashes, sessions).
+- **The public demo is a shared account with guard rails.** Its password
+  is a server secret, the normal sign-in form refuses it, uploads,
+  invitations and other irreversible actions are turned off for it, and
+  the nightly job rebuilds it from templates (`src/lib/demo.ts`).
 - **File access is checked by the app.** Photo and attachment routes call
   `can_view_avatar()` / RLS on `attachments` before streaming a file from
   private storage. Deleting a project notes its file paths, deletes the

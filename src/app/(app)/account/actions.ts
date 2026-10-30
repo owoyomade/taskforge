@@ -10,6 +10,7 @@ import { auth } from "@/lib/better-auth";
 import { attemptAsCurrentUser } from "@/lib/db";
 import { toUserMessage } from "@/lib/db-errors";
 import { deleteFiles, saveFile } from "@/lib/file-storage";
+import { DEMO_BLOCKED, isDemoSession } from "@/lib/demo";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { detectImageType, IMAGE_EXTENSIONS } from "@/lib/image-type";
 import { getMyProfile } from "@/lib/profiles";
@@ -35,6 +36,7 @@ export async function updateProfile(_previous: FormState, formData: FormData): P
 }
 
 export async function uploadAvatar(_previous: FormState, formData: FormData): Promise<FormState> {
+  if (await isDemoSession()) return { status: "error", message: DEMO_BLOCKED };
   const user = await requireUser();
   const file = formData.get("avatar");
 
@@ -97,6 +99,7 @@ export async function removeAvatar(): Promise<FormState> {
 }
 
 export async function changePassword(_previous: FormState, formData: FormData): Promise<FormState> {
+  if (await isDemoSession()) return { status: "error", message: DEMO_BLOCKED };
   await requireUser();
   const parsed = changePasswordSchema.safeParse({
     currentPassword: textField(formData, "currentPassword"),

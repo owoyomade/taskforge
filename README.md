@@ -61,6 +61,11 @@ Uploaded files are saved in the git-ignored `.data/uploads` folder.
 | bob@example.com | Bobcat Labs, owner (a separate tenant) |
 | erin@example.com | No workspace yet; has an open invitation to Acme Studio |
 
+With `DEMO_PASSWORD` set, the sign-in and home pages also show **Try the
+demo**, which signs visitors in to a shared "Demo Studio" workspace
+(`src/lib/demo.ts`). It rebuilds itself every night; uploads, invitations,
+password changes and deleting or leaving the workspace are turned off for it.
+
 Acme Studio also has a demo **Website relaunch** project with tasks, and a
 private **Hiring plan** project that only Alice and Dave can see.
 

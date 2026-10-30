@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Brand } from "@/components/brand";
+import { TryDemoButton } from "@/components/try-demo-button";
 import { buttonVariants } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -43,6 +44,7 @@ export default async function HomePage() {
             <Link href={user ? "/dashboard" : "/sign-up"} className={cn(buttonVariants({ size: "lg" }), "h-11 px-5")}>
               {user ? "Open your workspace" : "Create a free account"}
             </Link>
+            {user ? null : <TryDemoButton size="lg" className="h-11 px-5" />}
           </div>
         </div>
 

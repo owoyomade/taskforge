@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth";
 import { asCurrentUser, attemptAsCurrentUser, type Db } from "@/lib/db";
 import { toUserMessage } from "@/lib/db-errors";
 import { deleteFiles, saveFile } from "@/lib/file-storage";
+import { DEMO_BLOCKED, isDemoSession } from "@/lib/demo";
 import { ATTACHMENT_MAX_BYTES, detectAttachmentType, safeFileName } from "@/lib/file-type";
 import { extractMentionIds, stripDisallowedMentions } from "@/lib/mentions";
 import { hasProjectAccess, NO_PERMISSION, type ActionResult } from "@/lib/project-access";
@@ -125,6 +126,7 @@ export async function deleteComment(commentId: string): Promise<ActionResult> {
 // ---------------------------------------------------------------------------
 
 export async function uploadAttachment(formData: FormData): Promise<ActionResult> {
+  if (await isDemoSession()) return { ok: false, message: DEMO_BLOCKED };
   const taskId = formData.get("taskId");
   const file = formData.get("file");
   if (typeof taskId !== "string" || !idSchema.safeParse(taskId).success) return NO_PERMISSION;
