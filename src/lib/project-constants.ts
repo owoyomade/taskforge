@@ -1,8 +1,8 @@
-import type { Enums } from "@/lib/supabase/database.types";
-
-export type TaskPriority = Enums<"task_priority">;
-export type ProjectStatus = Enums<"project_status">;
-export type ProjectVisibility = Enums<"project_visibility">;
+// These mirror the database's enum types; db/tests/hardening.test.sql fails
+// if the two ever drift apart.
+export type TaskPriority = "none" | "low" | "medium" | "high" | "urgent";
+export type ProjectStatus = "planned" | "active" | "on_hold" | "completed";
+export type ProjectVisibility = "workspace" | "private";
 
 // Must match the check constraints on projects.color and labels.color.
 export const COLORS = ["teal", "blue", "violet", "rose", "amber", "slate"] as const;

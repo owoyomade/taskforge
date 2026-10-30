@@ -3,18 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { removeAttachmentFiles } from "@/lib/attachment-files";
+import { attachmentPathsIn, removeStoredAttachments } from "@/lib/attachment-files";
 import { requireUser } from "@/lib/auth";
+import { asDatabaseError, attemptAsCurrentUser, withUser } from "@/lib/db";
 import { toUserMessage } from "@/lib/db-errors";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { can, type WorkspaceCapability } from "@/lib/permissions";
 import { workspaceSlug } from "@/lib/slug";
-import { createClient } from "@/lib/supabase/server";
 import { workspaceNameSchema } from "@/lib/validation";
 import { listMyWorkspaces } from "@/lib/workspaces";
 
 export async function createWorkspace(_previous: FormState, formData: FormData): Promise<FormState> {
-  await requireUser();
+  const user = await requireUser();
 
   const values = { name: textField(formData, "name") };
   const parsed = workspaceNameSchema.safeParse(values);
@@ -22,23 +22,18 @@ export async function createWorkspace(_previous: FormState, formData: FormData):
     return validationError(parsed.error, values);
   }
 
-  const supabase = await createClient();
-
   // The random slug suffix makes a collision very unlikely; if one happens
   // anyway (unique violation 23505), one retry with a fresh suffix is enough.
   for (let attempt = 0; attempt < 2; attempt++) {
     const slug = workspaceSlug(parsed.data.name);
-    const { error } = await supabase.rpc("create_workspace", {
-      workspace_name: parsed.data.name,
-      workspace_slug: slug,
-    });
-
-    if (!error) {
-      redirect(`/w/${slug}`);
-    }
-    if (error.code !== "23505") {
+    try {
+      await withUser(user.id, (db) => db.query("select public.create_workspace($1, $2)", [parsed.data.name, slug]));
+    } catch (caught) {
+      const error = asDatabaseError(caught);
+      if (error.code === "23505") continue;
       return { status: "error", message: toUserMessage(error, "createWorkspace"), values };
     }
+    redirect(`/w/${slug}`);
   }
 
   return { status: "error", message: "Could not create the workspace. Please try again.", values };
@@ -74,18 +69,14 @@ export async function renameWorkspace(_previous: FormState, formData: FormData):
     return { status: "error", message: auth.message, values };
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("workspaces")
-    .update({ name: parsed.data.name })
-    .eq("id", auth.workspace.id)
-    .select("id");
-
-  if (error) {
-    return { status: "error", message: toUserMessage(error, "renameWorkspace"), values };
+  const result = await attemptAsCurrentUser((db) =>
+    db.query("update public.workspaces set name = $2 where id = $1 returning id", [auth.workspace.id, parsed.data.name]),
+  );
+  if (!result.ok) {
+    return { status: "error", message: toUserMessage(result.error, "renameWorkspace"), values };
   }
   // RLS turns a forbidden update into "0 rows changed" rather than an error.
-  if (data.length === 0) {
+  if (result.value.length === 0) {
     return { status: "error", message: "You don't have permission to do that.", values };
   }
 
@@ -109,21 +100,19 @@ export async function deleteWorkspace(_previous: FormState, formData: FormData):
     };
   }
 
-  // Only owners can delete a workspace, and owners manage every project in
-  // it, so they're allowed to remove all of its files.
-  if (!(await removeAttachmentFiles({ workspaceId: auth.workspace.id }))) {
-    return { status: "error", message: "Some attached files couldn't be deleted, so the workspace was kept. Try again." };
+  // Note the files first: deleting the workspace removes their records.
+  // Only owners can delete a workspace, and owners can see every project in it.
+  const filePaths = await attachmentPathsIn({ workspaceId: auth.workspace.id });
+  const result = await attemptAsCurrentUser((db) =>
+    db.query("delete from public.workspaces where id = $1 returning id", [auth.workspace.id]),
+  );
+  if (!result.ok) {
+    return { status: "error", message: toUserMessage(result.error, "deleteWorkspace") };
   }
-
-  const supabase = await createClient();
-  const { data, error } = await supabase.from("workspaces").delete().eq("id", auth.workspace.id).select("id");
-
-  if (error) {
-    return { status: "error", message: toUserMessage(error, "deleteWorkspace") };
-  }
-  if (data.length === 0) {
+  if (result.value.length === 0) {
     return { status: "error", message: "You don't have permission to do that." };
   }
+  await removeStoredAttachments(filePaths);
 
   redirect("/dashboard");
 }

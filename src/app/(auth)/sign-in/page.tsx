@@ -1,15 +1,24 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { redirect } from "next/navigation";
+
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { getCurrentUser } from "@/lib/auth";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 import { SignInForm } from "../auth-forms";
 
 export const metadata: Metadata = { title: "Sign in" };
 
 export default async function SignInPage({ searchParams }: PageProps<"/sign-in">) {
-  const { next, error } = await searchParams;
+  const { next, error, reset } = await searchParams;
   const nextPath = typeof next === "string" ? safeRedirectPath(next) : undefined;
+
+  // Checked here, against the real session, rather than in the proxy: an
+  // expired cookie would otherwise bounce between this page and the app.
+  if (await getCurrentUser()) {
+    redirect(nextPath ?? "/dashboard");
+  }
 
   return (
     <div className="grid gap-6">
@@ -17,6 +26,11 @@ export default async function SignInPage({ searchParams }: PageProps<"/sign-in">
         <h1 className="text-2xl font-semibold">Sign in</h1>
         <p className="text-sm text-muted-foreground">Welcome back. Pick up where your team left off.</p>
       </div>
+      {reset === "done" ? (
+        <Alert>
+          <AlertDescription>Your password has been changed. Sign in with the new one.</AlertDescription>
+        </Alert>
+      ) : null}
       {error === "link" ? (
         <Alert variant="destructive">
           <AlertDescription>That link is invalid or has expired. Sign in, or request a new link.</AlertDescription>

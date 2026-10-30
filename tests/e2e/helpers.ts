@@ -2,9 +2,9 @@ import { expect, type Page } from "@playwright/test";
 
 import { E2E_BASE_URL } from "../../playwright.config";
 
-// Local Supabase delivers auth emails to Mailpit instead of sending them.
+// Locally, every email the app sends lands in Mailpit (docker-compose.yml).
 // Its API lets tests open the confirmation or reset link like a real user.
-const MAILPIT_URL = "http://127.0.0.1:54324";
+const MAILPIT_URL = "http://127.0.0.1:8025";
 
 export const SEED_PASSWORD = "Password123";
 
@@ -26,7 +26,8 @@ export async function latestAuthLink(to: string): Promise<string> {
 
         const message = await fetch(`${MAILPIT_URL}/api/v1/message/${messages[0].ID}`);
         const { HTML } = (await message.json()) as { HTML: string };
-        const href = HTML.match(/href="([^"]*\/auth\/confirm[^"]*)"/)?.[1]?.replaceAll("&amp;", "&");
+        // Confirmation and reset links both go through the sign-in library at /api/auth/.
+        const href = HTML.match(/href="([^"]*\/api\/auth\/[^"]*)"/)?.[1]?.replaceAll("&amp;", "&");
         // Emails point at the Site URL (port 3000); send the test to its own server instead.
         if (href) {
           const emailed = new URL(href);

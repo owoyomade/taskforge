@@ -1,7 +1,7 @@
 -- Local development seed data. Runs on `npm run db:reset`.
--- NEVER run this against a hosted project: it creates users with a known password.
+-- NEVER run this against a hosted database: it creates demo accounts.
 --
--- Every account below signs in with the password: Password123
+-- Every demo account signs in with the password: Password123
 --
 --   alice@example.com  owner of "Acme Studio"
 --   dave@example.com   admin in "Acme Studio"
@@ -15,26 +15,8 @@ with seed_users (id, email, full_name) as (
     ('c3c3c3c3-0000-4000-8000-000000000003'::uuid, 'carol@example.com', 'Carol Chen'),
     ('d4d4d4d4-0000-4000-8000-000000000004'::uuid, 'dave@example.com', 'Dave Mensah')
 )
-insert into auth.users (
-  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
-  confirmation_token, recovery_token, email_change, email_change_token_new
-)
-select
-  '00000000-0000-0000-0000-000000000000', id, 'authenticated', 'authenticated', email,
-  extensions.crypt('Password123', extensions.gen_salt('bf')), now(),
-  '{"provider": "email", "providers": ["email"]}', jsonb_build_object('full_name', full_name),
-  now(), now(), '', '', '', ''
-from seed_users;
-
--- Supabase Auth needs a matching identity row for email/password sign-in.
-insert into auth.identities (id, user_id, provider_id, provider, identity_data, last_sign_in_at, created_at, updated_at)
-select
-  gen_random_uuid(), id, id::text, 'email',
-  jsonb_build_object('sub', id::text, 'email', email, 'email_verified', true),
-  now(), now(), now()
-from auth.users
-where email like '%@example.com';
+insert into auth.users (id, email, name, email_verified)
+select id, email, full_name, true from seed_users;
 
 -- Profiles were created by the on_auth_user_created trigger.
 
@@ -126,20 +108,8 @@ insert into public.comments (id, workspace_id, project_id, task_id, author_id, b
 insert into public.comment_mentions (comment_id, project_id, workspace_id, user_id) values
   ('80000000-0000-4000-8000-000000000001', '30000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'a1a1a1a1-0000-4000-8000-000000000001');
 
-insert into auth.users (
-  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
-  confirmation_token, recovery_token, email_change, email_change_token_new
-) values (
-  '00000000-0000-0000-0000-000000000000', 'e5e5e5e5-0000-4000-8000-000000000005', 'authenticated', 'authenticated',
-  'erin@example.com', extensions.crypt('Password123', extensions.gen_salt('bf')), now(),
-  '{"provider": "email", "providers": ["email"]}', '{"full_name": "Erin Walsh"}', now(), now(), '', '', '', ''
-);
-
-insert into auth.identities (id, user_id, provider_id, provider, identity_data, last_sign_in_at, created_at, updated_at) values (
-  gen_random_uuid(), 'e5e5e5e5-0000-4000-8000-000000000005', 'e5e5e5e5-0000-4000-8000-000000000005', 'email',
-  '{"sub": "e5e5e5e5-0000-4000-8000-000000000005", "email": "erin@example.com", "email_verified": true}', now(), now(), now()
-);
+insert into auth.users (id, email, name, email_verified) values
+  ('e5e5e5e5-0000-4000-8000-000000000005', 'erin@example.com', 'Erin Walsh', true);
 
 -- Erin's invite link works locally:
 -- http://localhost:3000/invite/0123456789abcdef0123456789abcdef0123456789abcdef
@@ -170,3 +140,11 @@ insert into public.milestone_tasks (milestone_id, task_id, project_id, workspace
   ('90000000-0000-4000-8000-000000000002', '60000000-0000-4000-8000-000000000003', '30000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001'),
   ('90000000-0000-4000-8000-000000000003', '60000000-0000-4000-8000-000000000004', '30000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001'),
   ('90000000-0000-4000-8000-000000000004', '60000000-0000-4000-8000-000000000007', '30000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001');
+
+-- Sign-in for every demo account. The value is Better Auth's salted scrypt
+-- hash of "Password123", made with hashPassword() from better-auth/crypto.
+insert into auth.accounts (user_id, account_id, provider_id, password)
+select id, id::text, 'credential',
+  'e2ba7ef31dd3e175719384f8c7065b10:426a958c8f448dbe0fa517a12cba9d5e9d92cf24d76a51f461be4ebdcb364c112d5b555d41259911a7ca253d33e8233f9f6733dabb669f8dd43f882bbd711548'
+from auth.users
+where email like '%@example.com';

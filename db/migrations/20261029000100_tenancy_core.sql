@@ -49,7 +49,7 @@ create trigger profiles_set_updated_at
   before update on public.profiles
   for each row execute function public.set_updated_at();
 
--- Creates the profile row as soon as Supabase Auth creates the user, so the
+-- Creates the profile row as soon as the sign-in system creates the user, so the
 -- app never has to handle "user exists but profile doesn't".
 create function public.handle_new_auth_user()
 returns trigger
@@ -62,7 +62,7 @@ begin
   values (
     new.id,
     coalesce(new.email, ''),
-    left(trim(coalesce(new.raw_user_meta_data ->> 'full_name', '')), 80)
+    left(trim(coalesce(new.name, '')), 80)
   );
   return new;
 end;

@@ -12,7 +12,7 @@ import {
   type ProjectVisibility,
   type TaskPriority,
 } from "@/lib/project-constants";
-import { createClient } from "@/lib/supabase/server";
+import { asCurrentUser } from "@/lib/db";
 import { dateRange, escapeLikePattern, type TaskFilters } from "@/lib/task-filters";
 import { listWorkspaceMembers, type WorkspaceMember } from "@/lib/workspaces";
 
@@ -68,7 +68,7 @@ export type TaskDetail = TaskCard & {
 export type RemovedTask = { id: string; title: string; archivedAt: string | null; deletedAt: string | null };
 
 const PROJECT_FIELDS =
-  "id, workspace_id, name, description, color, status, visibility, archived_at, start_date, target_date, owner_id" as const;
+  "p.id, p.workspace_id, p.name, p.description, p.color, p.status, p.visibility, p.archived_at, p.start_date, p.target_date, p.owner_id";
 
 type ProjectRow = {
   id: string;
@@ -106,15 +106,15 @@ function toPerson(member: WorkspaceMember): Person {
 /** Projects in a workspace that the user can see (RLS hides the rest). */
 export const listProjects = cache(
   async (workspaceId: string, { archived = false } = {}): Promise<ProjectSummary[]> => {
-    const supabase = await createClient();
-    let query = supabase.from("projects").select(PROJECT_FIELDS).eq("workspace_id", workspaceId);
-    query = archived ? query.not("archived_at", "is", null) : query.is("archived_at", null);
-
-    const { data, error } = await query.order("name");
-    if (error) {
-      throw new Error("Could not load projects.");
-    }
-    return data.map(toProjectSummary);
+    const rows = await asCurrentUser((db) =>
+      db.query<ProjectRow>(
+        `select ${PROJECT_FIELDS} from public.projects p
+         where p.workspace_id = $1 and (p.archived_at is not null) = $2
+         order by p.name`,
+        [workspaceId, archived],
+      ),
+    );
+    return rows.map(toProjectSummary);
   },
 );
 
@@ -122,36 +122,22 @@ export const listProjects = cache(
 export async function countTasksByProject(
   workspaceId: string,
 ): Promise<Map<string, { open: number; done: number; overdue: number }>> {
-  const supabase = await createClient();
-  const [{ data: tasks, error: taskError }, { data: columns, error: columnError }] = await Promise.all([
-    supabase
-      .from("tasks")
-      .select("project_id, column_id, due_date")
-      .eq("workspace_id", workspaceId)
-      .is("parent_task_id", null)
-      .is("archived_at", null)
-      .is("deleted_at", null),
-    supabase.from("board_columns").select("id, is_done").eq("workspace_id", workspaceId),
-  ]);
-  if (taskError || columnError) {
-    throw new Error("Could not load task counts.");
-  }
-
-  const doneColumns = new Set(columns.filter((column) => column.is_done).map((column) => column.id));
   const { today } = dateRange(0);
-  const counts = new Map<string, { open: number; done: number; overdue: number }>();
-
-  for (const task of tasks) {
-    const entry = counts.get(task.project_id) ?? { open: 0, done: 0, overdue: 0 };
-    if (task.column_id && doneColumns.has(task.column_id)) {
-      entry.done += 1;
-    } else {
-      entry.open += 1;
-      if (task.due_date && task.due_date < today) entry.overdue += 1;
-    }
-    counts.set(task.project_id, entry);
-  }
-  return counts;
+  // A task counts as done when it sits in a "done" column.
+  const rows = await asCurrentUser((db) =>
+    db.query<{ project_id: string; open: number; done: number; overdue: number }>(
+      `select t.project_id,
+         count(*) filter (where c.is_done) as done,
+         count(*) filter (where not coalesce(c.is_done, false)) as open,
+         count(*) filter (where not coalesce(c.is_done, false) and t.due_date < $2) as overdue
+       from public.tasks t
+       left join public.board_columns c on c.id = t.column_id
+       where t.workspace_id = $1 and t.parent_task_id is null and t.archived_at is null and t.deleted_at is null
+       group by t.project_id`,
+      [workspaceId, today],
+    ),
+  );
+  return new Map(rows.map((row) => [row.project_id, { open: row.open, done: row.done, overdue: row.overdue }]));
 }
 
 /**
@@ -163,12 +149,14 @@ export const getProjectForUser = cache(async (workspaceId: string, projectId: st
     notFound();
   }
 
-  const supabase = await createClient();
-  const [{ data: project }, { data: access }] = await Promise.all([
-    supabase.from("projects").select(PROJECT_FIELDS).eq("id", projectId).eq("workspace_id", workspaceId).maybeSingle(),
-    supabase.rpc("project_access", { target_project: projectId }),
-  ]);
-
+  const [project] = await asCurrentUser((db) =>
+    db.query<ProjectRow & { access: string | null }>(
+      `select ${PROJECT_FIELDS}, public.project_access(p.id) as access
+       from public.projects p where p.id = $1 and p.workspace_id = $2`,
+      [projectId, workspaceId],
+    ),
+  );
+  const access = project?.access;
   if (!project || (access !== "manage" && access !== "edit" && access !== "view")) {
     notFound();
   }
@@ -177,29 +165,23 @@ export const getProjectForUser = cache(async (workspaceId: string, projectId: st
 });
 
 export const listColumns = cache(async (projectId: string): Promise<BoardColumn[]> => {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("board_columns")
-    .select("id, name, position, is_done")
-    .eq("project_id", projectId)
-    .order("position");
-  if (error) {
-    throw new Error("Could not load the board.");
-  }
-  return data.map((column) => ({ id: column.id, name: column.name, position: column.position, isDone: column.is_done }));
+  const rows = await asCurrentUser((db) =>
+    db.query<{ id: string; name: string; position: number; is_done: boolean }>(
+      "select id, name, position, is_done from public.board_columns where project_id = $1 order by position",
+      [projectId],
+    ),
+  );
+  return rows.map((column) => ({ id: column.id, name: column.name, position: column.position, isDone: column.is_done }));
 });
 
 export const listLabels = cache(async (workspaceId: string): Promise<LabelView[]> => {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("labels")
-    .select("id, name, color")
-    .eq("workspace_id", workspaceId)
-    .order("name");
-  if (error) {
-    throw new Error("Could not load labels.");
-  }
-  return data.map((label) => ({ id: label.id, name: label.name, color: asColor(label.color) }));
+  const rows = await asCurrentUser((db) =>
+    db.query<{ id: string; name: string; color: string }>(
+      "select id, name, color from public.labels where workspace_id = $1 order by name",
+      [workspaceId],
+    ),
+  );
+  return rows.map((label) => ({ id: label.id, name: label.name, color: asColor(label.color) }));
 });
 
 /**
@@ -228,82 +210,88 @@ export async function listAssignablePeople(project: ProjectDetail): Promise<Pers
 }
 
 export async function listProjectMemberIds(projectId: string): Promise<string[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase.from("project_members").select("user_id").eq("project_id", projectId);
-  if (error) {
-    throw new Error("Could not load project members.");
-  }
-  return data.map((row) => row.user_id);
+  const rows = await asCurrentUser((db) =>
+    db.query<{ user_id: string }>("select user_id from public.project_members where project_id = $1", [projectId]),
+  );
+  return rows.map((row) => row.user_id);
 }
 
+type TaskCardRow = {
+  id: string;
+  title: string;
+  column_id: string | null;
+  position: number;
+  priority: TaskPriority;
+  start_date: string | null;
+  due_date: string | null;
+  updated_at: string;
+  assignee_ids: string[];
+  label_ids: string[];
+  subtasks_total: number;
+  subtasks_done: number;
+  checklist_total: number;
+  checklist_done: number;
+};
+
 /**
- * Loads the board's tasks with their assignees, labels and progress,
- * applying the filters in the database where possible.
- *
- * Related rows are fetched per project (not per task id) so the queries
- * stay small and fixed in number however many tasks there are.
+ * Loads the board's tasks with their assignees, labels and progress in one
+ * query, applying the search, priority and date filters in the database.
  */
 export async function listTaskCards(
   project: ProjectDetail,
   columns: BoardColumn[],
   filters: TaskFilters,
 ): Promise<TaskCard[]> {
-  const supabase = await createClient();
+  const { today, until } = dateRange(7);
+  // Filters are added as numbered parameters, never pasted into the SQL text.
+  const values: unknown[] = [project.id];
+  const conditions: string[] = [];
+  if (filters.q) {
+    values.push(`%${escapeLikePattern(filters.q)}%`);
+    conditions.push(`t.title ilike $${values.length}`);
+  }
+  if (filters.priority) {
+    values.push(filters.priority);
+    conditions.push(`t.priority = $${values.length}`);
+  }
+  if (filters.due === "overdue") {
+    values.push(today);
+    conditions.push(`t.due_date < $${values.length}`);
+  }
+  if (filters.due === "week") {
+    values.push(today, until);
+    conditions.push(`t.due_date between $${values.length - 1} and $${values.length}`);
+  }
+  if (filters.due === "none") conditions.push("t.due_date is null");
 
-  const [assigneeRows, labelRows, subtaskRows, checklistRows, people, labels] = await Promise.all([
-    supabase.from("task_assignees").select("task_id, user_id").eq("project_id", project.id),
-    supabase.from("task_labels").select("task_id, label_id").eq("project_id", project.id),
-    supabase
-      .from("tasks")
-      .select("parent_task_id, completed_at")
-      .eq("project_id", project.id)
-      .not("parent_task_id", "is", null)
-      .is("deleted_at", null),
-    supabase.from("checklist_items").select("task_id, is_done").eq("project_id", project.id),
+  const [rows, people, labels] = await Promise.all([
+    asCurrentUser((db) =>
+      db.query<TaskCardRow>(
+        `select t.id, t.title, t.column_id, t.position, t.priority, t.start_date, t.due_date, t.updated_at,
+           array(select a.user_id::text from public.task_assignees a where a.task_id = t.id) as assignee_ids,
+           array(select l.label_id::text from public.task_labels l where l.task_id = t.id) as label_ids,
+           (select count(*) from public.tasks s where s.parent_task_id = t.id and s.deleted_at is null) as subtasks_total,
+           (select count(*) from public.tasks s where s.parent_task_id = t.id and s.deleted_at is null and s.completed_at is not null) as subtasks_done,
+           (select count(*) from public.checklist_items i where i.task_id = t.id) as checklist_total,
+           (select count(*) from public.checklist_items i where i.task_id = t.id and i.is_done) as checklist_done
+         from public.tasks t
+         where t.project_id = $1 and t.parent_task_id is null and t.archived_at is null and t.deleted_at is null
+           ${conditions.map((condition) => `and ${condition}`).join(" ")}
+         order by t.position`,
+        values,
+      ),
+    ),
     listWorkspaceMembers(project.workspaceId),
     listLabels(project.workspaceId),
   ]);
-
-  if (assigneeRows.error || labelRows.error || subtaskRows.error || checklistRows.error) {
-    throw new Error("Could not load task details.");
-  }
-
-  let query = supabase
-    .from("tasks")
-    .select("id, title, column_id, position, priority, start_date, due_date, updated_at")
-    .eq("project_id", project.id)
-    .is("parent_task_id", null)
-    .is("archived_at", null)
-    .is("deleted_at", null);
-
-  const { today, until } = dateRange(7);
-  if (filters.q) query = query.ilike("title", `%${escapeLikePattern(filters.q)}%`);
-  if (filters.priority) query = query.eq("priority", filters.priority);
-  if (filters.due === "overdue") query = query.lt("due_date", today);
-  if (filters.due === "week") query = query.gte("due_date", today).lte("due_date", until);
-  if (filters.due === "none") query = query.is("due_date", null);
-
-  const { data: rows, error } = await query.order("position");
-  if (error) {
-    throw new Error("Could not load tasks.");
-  }
 
   const peopleById = new Map(people.map((member) => [member.userId, toPerson(member)]));
   const labelsById = new Map(labels.map((label) => [label.id, label]));
   const doneColumns = new Set(columns.filter((column) => column.isDone).map((column) => column.id));
 
-  const assigneesByTask = groupBy(assigneeRows.data, (row) => row.task_id);
-  const labelsByTask = groupBy(labelRows.data, (row) => row.task_id);
-  const subtasksByTask = groupBy(subtaskRows.data, (row) => row.parent_task_id ?? "");
-  const checklistByTask = groupBy(checklistRows.data, (row) => row.task_id);
-
   const cards = rows.flatMap((row): TaskCard[] => {
     // Every top-level task has a column (enforced by a check constraint).
     if (!row.column_id) return [];
-    const assigneeIds = (assigneesByTask.get(row.id) ?? []).map((assignee) => assignee.user_id);
-    const subtasks = subtasksByTask.get(row.id) ?? [];
-    const checklist = checklistByTask.get(row.id) ?? [];
-
     return [
       {
         id: row.id,
@@ -314,10 +302,10 @@ export async function listTaskCards(
         startDate: row.start_date,
         dueDate: row.due_date,
         updatedAt: row.updated_at,
-        assignees: assigneeIds.flatMap((id) => peopleById.get(id) ?? []),
-        labels: (labelsByTask.get(row.id) ?? []).flatMap((link) => labelsById.get(link.label_id) ?? []),
-        subtasks: { total: subtasks.length, done: subtasks.filter((subtask) => subtask.completed_at).length },
-        checklist: { total: checklist.length, done: checklist.filter((item) => item.is_done).length },
+        assignees: row.assignee_ids.flatMap((id) => peopleById.get(id) ?? []),
+        labels: row.label_ids.flatMap((id) => labelsById.get(id) ?? []),
+        subtasks: { total: row.subtasks_total, done: row.subtasks_done },
+        checklist: { total: row.checklist_total, done: row.checklist_done },
       },
     ];
   });
@@ -344,45 +332,67 @@ export async function getTaskDetail(
     return null;
   }
 
-  const supabase = await createClient();
-  const [task, subtasks, checklists, items, assignees, taskLabels, people, labels, comments, attachments] = await Promise.all([
-    supabase
-      .from("tasks")
-      .select(
-        "id, title, description, column_id, position, priority, start_date, due_date, updated_at, version, created_at, created_by",
-      )
-      .eq("id", taskId)
-      .eq("project_id", project.id)
-      .is("parent_task_id", null)
-      .is("deleted_at", null)
-      .maybeSingle(),
-    supabase
-      .from("tasks")
-      .select("id, title, completed_at")
-      .eq("parent_task_id", taskId)
-      .is("deleted_at", null)
-      .order("position"),
-    supabase.from("checklists").select("id, title").eq("task_id", taskId).order("position"),
-    supabase.from("checklist_items").select("id, checklist_id, content, is_done").eq("task_id", taskId).order("position"),
-    supabase.from("task_assignees").select("user_id").eq("task_id", taskId),
-    supabase.from("task_labels").select("label_id").eq("task_id", taskId),
+  // The task-specific rows come from one transaction, so they all describe
+  // the task at the same moment.
+  const taskRows = asCurrentUser(async (db) => {
+    const [task] = await db.query<{
+      id: string;
+      title: string;
+      description: string;
+      column_id: string | null;
+      position: number;
+      priority: TaskPriority;
+      start_date: string | null;
+      due_date: string | null;
+      updated_at: string;
+      version: number;
+      created_at: string;
+      created_by: string | null;
+      assignee_ids: string[];
+      label_ids: string[];
+    }>(
+      `select t.id, t.title, t.description, t.column_id, t.position, t.priority, t.start_date, t.due_date,
+         t.updated_at, t.version, t.created_at, t.created_by,
+         array(select a.user_id::text from public.task_assignees a where a.task_id = t.id) as assignee_ids,
+         array(select l.label_id::text from public.task_labels l where l.task_id = t.id) as label_ids
+       from public.tasks t
+       where t.id = $1 and t.project_id = $2 and t.parent_task_id is null and t.deleted_at is null`,
+      [taskId, project.id],
+    );
+    if (!task) return null;
+    const subtasks = await db.query<{ id: string; title: string; completed_at: string | null }>(
+      "select id, title, completed_at from public.tasks where parent_task_id = $1 and deleted_at is null order by position",
+      [taskId],
+    );
+    const checklists = await db.query<{ id: string; title: string }>(
+      "select id, title from public.checklists where task_id = $1 order by position",
+      [taskId],
+    );
+    const items = await db.query<{ id: string; checklist_id: string; content: string; is_done: boolean }>(
+      "select id, checklist_id, content, is_done from public.checklist_items where task_id = $1 order by position",
+      [taskId],
+    );
+    return { task, subtasks, checklists, items };
+  });
+
+  const [loaded, people, labels, comments, attachments] = await Promise.all([
+    taskRows,
     listWorkspaceMembers(project.workspaceId),
     listLabels(project.workspaceId),
     listComments(project, taskId),
     listAttachments(project, taskId),
   ]);
 
-  if (!task.data || !task.data.column_id) {
+  if (!loaded || !loaded.task.column_id) {
     return null;
-  }
-  if (subtasks.error || checklists.error || items.error || assignees.error || taskLabels.error) {
-    throw new Error("Could not load the task.");
   }
 
   const peopleById = new Map(people.map((member) => [member.userId, toPerson(member)]));
   const labelsById = new Map(labels.map((label) => [label.id, label]));
-  const itemsByChecklist = groupBy(items.data, (item) => item.checklist_id);
-  const row = task.data;
+  const itemsByChecklist = groupBy(loaded.items, (item) => item.checklist_id);
+  const row = loaded.task;
+  const subtasks = loaded.subtasks;
+  const items = loaded.items;
 
   return {
     id: row.id,
@@ -397,19 +407,19 @@ export async function getTaskDetail(
     version: row.version,
     createdAt: row.created_at,
     createdBy: row.created_by ? (peopleById.get(row.created_by) ?? null) : null,
-    assignees: assignees.data.flatMap((assignee) => peopleById.get(assignee.user_id) ?? []),
-    labels: taskLabels.data.flatMap((link) => labelsById.get(link.label_id) ?? []),
+    assignees: row.assignee_ids.flatMap((id) => peopleById.get(id) ?? []),
+    labels: row.label_ids.flatMap((id) => labelsById.get(id) ?? []),
     subtasks: {
-      total: subtasks.data.length,
-      done: subtasks.data.filter((subtask) => subtask.completed_at).length,
+      total: subtasks.length,
+      done: subtasks.filter((subtask) => subtask.completed_at).length,
     },
-    checklist: { total: items.data.length, done: items.data.filter((item) => item.is_done).length },
-    subtaskItems: subtasks.data.map((subtask) => ({
+    checklist: { total: items.length, done: items.filter((item) => item.is_done).length },
+    subtaskItems: subtasks.map((subtask) => ({
       id: subtask.id,
       title: subtask.title,
       completed: Boolean(subtask.completed_at),
     })),
-    checklists: checklists.data.map((checklist) => ({
+    checklists: loaded.checklists.map((checklist) => ({
       id: checklist.id,
       title: checklist.title,
       items: (itemsByChecklist.get(checklist.id) ?? []).map((item) => ({
@@ -425,19 +435,15 @@ export async function getTaskDetail(
 
 /** Archived and deleted tasks, newest first, for restoring from project settings. */
 export async function listRemovedTasks(projectId: string): Promise<RemovedTask[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("tasks")
-    .select("id, title, archived_at, deleted_at, updated_at")
-    .eq("project_id", projectId)
-    .is("parent_task_id", null)
-    .or("archived_at.not.is.null,deleted_at.not.is.null")
-    .order("updated_at", { ascending: false })
-    .limit(100);
-  if (error) {
-    throw new Error("Could not load archived tasks.");
-  }
-  return data.map((task) => ({ id: task.id, title: task.title, archivedAt: task.archived_at, deletedAt: task.deleted_at }));
+  const rows = await asCurrentUser((db) =>
+    db.query<{ id: string; title: string; archived_at: string | null; deleted_at: string | null }>(
+      `select id, title, archived_at, deleted_at from public.tasks
+       where project_id = $1 and parent_task_id is null and (archived_at is not null or deleted_at is not null)
+       order by updated_at desc limit 100`,
+      [projectId],
+    ),
+  );
+  return rows.map((task) => ({ id: task.id, title: task.title, archivedAt: task.archived_at, deletedAt: task.deleted_at }));
 }
 
 function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
@@ -472,23 +478,21 @@ export type AttachmentView = {
 
 /** A task's comments, oldest first, with the people they validly mention. */
 export async function listComments(project: ProjectDetail, taskId: string): Promise<CommentView[]> {
-  const supabase = await createClient();
-  const [{ data: comments, error }, { data: mentions, error: mentionError }, people] = await Promise.all([
-    supabase
-      .from("comments")
-      .select("id, body, author_id, created_at, edited_at")
-      .eq("task_id", taskId)
-      .order("created_at")
-      .limit(200),
-    supabase.from("comment_mentions").select("comment_id, user_id").eq("project_id", project.id),
+  const [comments, people] = await Promise.all([
+    asCurrentUser((db) =>
+      db.query<{ id: string; body: string; author_id: string | null; created_at: string; edited_at: string | null; mention_ids: string[] }>(
+        `select c.id, c.body, c.author_id, c.created_at, c.edited_at,
+           array(select m.user_id::text from public.comment_mentions m where m.comment_id = c.id) as mention_ids
+         from public.comments c
+         where c.task_id = $1 and c.project_id = $2
+         order by c.created_at limit 200`,
+        [taskId, project.id],
+      ),
+    ),
     listWorkspaceMembers(project.workspaceId),
   ]);
-  if (error || mentionError) {
-    throw new Error("Could not load comments.");
-  }
 
   const peopleById = new Map(people.map((member) => [member.userId, toPerson(member)]));
-  const mentionsByComment = groupBy(mentions, (mention) => mention.comment_id);
 
   return comments.map((comment) => ({
     id: comment.id,
@@ -497,23 +501,21 @@ export async function listComments(project: ProjectDetail, taskId: string): Prom
     authorId: comment.author_id,
     createdAt: comment.created_at,
     editedAt: comment.edited_at,
-    mentionIds: (mentionsByComment.get(comment.id) ?? []).map((mention) => mention.user_id),
+    mentionIds: comment.mention_ids,
   }));
 }
 
 export async function listAttachments(project: ProjectDetail, taskId: string): Promise<AttachmentView[]> {
-  const supabase = await createClient();
-  const [{ data, error }, people] = await Promise.all([
-    supabase
-      .from("attachments")
-      .select("id, file_name, content_type, size_bytes, uploaded_by, created_at")
-      .eq("task_id", taskId)
-      .order("created_at"),
+  const [data, people] = await Promise.all([
+    asCurrentUser((db) =>
+      db.query<{ id: string; file_name: string; content_type: string; size_bytes: number; uploaded_by: string | null; created_at: string }>(
+        `select id, file_name, content_type, size_bytes, uploaded_by, created_at
+         from public.attachments where task_id = $1 and project_id = $2 order by created_at`,
+        [taskId, project.id],
+      ),
+    ),
     listWorkspaceMembers(project.workspaceId),
   ]);
-  if (error) {
-    throw new Error("Could not load attachments.");
-  }
 
   const peopleById = new Map(people.map((member) => [member.userId, toPerson(member)]));
   return data.map((row) => ({
@@ -545,46 +547,43 @@ export type PhaseView = {
  * tasks don't count.
  */
 export async function listPhases(workspaceId: string, projectId?: string): Promise<Map<string, PhaseView[]>> {
-  const supabase = await createClient();
-  let phaseQuery = supabase
-    .from("milestones")
-    .select("id, project_id, name, description, target_date, owner_id, position")
-    .eq("workspace_id", workspaceId);
-  let linkQuery = supabase.from("milestone_tasks").select("milestone_id, task_id").eq("workspace_id", workspaceId);
-  let taskQuery = supabase
-    .from("tasks")
-    .select("id, column_id")
-    .eq("workspace_id", workspaceId)
-    .is("parent_task_id", null)
-    .is("archived_at", null)
-    .is("deleted_at", null);
-  if (projectId) {
-    phaseQuery = phaseQuery.eq("project_id", projectId);
-    linkQuery = linkQuery.eq("project_id", projectId);
-    taskQuery = taskQuery.eq("project_id", projectId);
-  }
+  const { phases, links } = await asCurrentUser(async (db) => {
+    // $2 is null for "every project in the workspace".
+    const phases = await db.query<{
+      id: string;
+      project_id: string;
+      name: string;
+      description: string;
+      target_date: string | null;
+      owner_id: string | null;
+      position: number;
+    }>(
+      `select id, project_id, name, description, target_date, owner_id, position
+       from public.milestones
+       where workspace_id = $1 and ($2::uuid is null or project_id = $2)
+       order by position`,
+      [workspaceId, projectId ?? null],
+    );
+    // Only live (not archived or deleted) top-level tasks count towards a phase.
+    const links = await db.query<{ milestone_id: string; task_id: string; is_done: boolean }>(
+      `select mt.milestone_id, mt.task_id, coalesce(c.is_done, false) as is_done
+       from public.milestone_tasks mt
+       join public.tasks t on t.id = mt.task_id
+       left join public.board_columns c on c.id = t.column_id
+       where mt.workspace_id = $1 and ($2::uuid is null or mt.project_id = $2)
+         and t.parent_task_id is null and t.archived_at is null and t.deleted_at is null`,
+      [workspaceId, projectId ?? null],
+    );
+    return { phases, links };
+  });
 
-  const [phases, links, tasks, columns] = await Promise.all([
-    phaseQuery.order("position"),
-    linkQuery,
-    taskQuery,
-    supabase.from("board_columns").select("id, is_done").eq("workspace_id", workspaceId),
-  ]);
-  if (phases.error || links.error || tasks.error || columns.error) {
-    throw new Error("Could not load phases.");
-  }
-
-  const doneColumns = new Set(columns.data.filter((column) => column.is_done).map((column) => column.id));
-  const liveTasks = new Map(tasks.data.map((task) => [task.id, task.column_id]));
-  const linksByPhase = groupBy(links.data, (link) => link.milestone_id);
+  const linksByPhase = groupBy(links, (link) => link.milestone_id);
 
   const result = new Map<string, PhaseView[]>();
-  for (const phase of phases.data) {
-    const taskIds = (linksByPhase.get(phase.id) ?? []).map((link) => link.task_id).filter((id) => liveTasks.has(id));
-    const done = taskIds.filter((id) => {
-      const columnId = liveTasks.get(id);
-      return columnId ? doneColumns.has(columnId) : false;
-    }).length;
+  for (const phase of phases) {
+    const phaseLinks = linksByPhase.get(phase.id) ?? [];
+    const taskIds = phaseLinks.map((link) => link.task_id);
+    const done = phaseLinks.filter((link) => link.is_done).length;
     const list = result.get(phase.project_id) ?? [];
     list.push({
       id: phase.id,
@@ -618,37 +617,31 @@ export type MyTask = {
  * first: overdue, then by due date, then undated. Used for "Do next".
  */
 export async function listMyOpenTasks(workspaceId: string, userId: string, limit = 25): Promise<MyTask[]> {
-  const supabase = await createClient();
-  const [assigned, columns, projects] = await Promise.all([
-    supabase.from("task_assignees").select("task_id").eq("workspace_id", workspaceId).eq("user_id", userId),
-    supabase.from("board_columns").select("id, is_done").eq("workspace_id", workspaceId),
-    supabase.from("projects").select("id, name, color, archived_at").eq("workspace_id", workspaceId),
-  ]);
-  if (assigned.error || columns.error || projects.error) {
-    throw new Error("Could not load your tasks.");
-  }
-
-  const taskIds = assigned.data.map((row) => row.task_id);
-  if (taskIds.length === 0) return [];
-
-  const { data: tasks, error } = await supabase
-    .from("tasks")
-    .select("id, title, due_date, priority, project_id, column_id")
-    .in("id", taskIds.slice(0, 500))
-    .is("parent_task_id", null)
-    .is("archived_at", null)
-    .is("deleted_at", null);
-  if (error) {
-    throw new Error("Could not load your tasks.");
-  }
-
-  const doneColumns = new Set(columns.data.filter((column) => column.is_done).map((column) => column.id));
-  const activeProjects = new Map(
-    projects.data.filter((project) => !project.archived_at).map((project) => [project.id, project]),
+  const tasks = await asCurrentUser((db) =>
+    db.query<{
+      id: string;
+      title: string;
+      due_date: string | null;
+      priority: TaskPriority;
+      project_id: string;
+      column_id: string;
+      project_name: string;
+      project_color: string;
+    }>(
+      `select t.id, t.title, t.due_date, t.priority, t.project_id, t.column_id,
+         p.name as project_name, p.color as project_color
+       from public.task_assignees a
+       join public.tasks t on t.id = a.task_id
+       join public.projects p on p.id = t.project_id
+       join public.board_columns c on c.id = t.column_id
+       where a.workspace_id = $1 and a.user_id = $2
+         and t.parent_task_id is null and t.archived_at is null and t.deleted_at is null
+         and p.archived_at is null and not c.is_done`,
+      [workspaceId, userId],
+    ),
   );
 
   return tasks
-    .filter((task) => task.column_id && !doneColumns.has(task.column_id) && activeProjects.has(task.project_id))
     .sort((a, b) => {
       if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
       if (a.due_date) return -1;
@@ -656,32 +649,38 @@ export async function listMyOpenTasks(workspaceId: string, userId: string, limit
       return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
     })
     .slice(0, limit)
-    .map((task) => {
-      const project = activeProjects.get(task.project_id);
-      return {
-        id: task.id,
-        title: task.title,
-        columnId: task.column_id ?? "",
-        dueDate: task.due_date,
-        priority: task.priority,
-        projectId: task.project_id,
-        projectName: project?.name ?? "",
-        projectColor: asColor(project?.color ?? "slate"),
-      };
-    });
+    .map((task) => ({
+      id: task.id,
+      title: task.title,
+      columnId: task.column_id,
+      dueDate: task.due_date,
+      priority: task.priority,
+      projectId: task.project_id,
+      projectName: task.project_name,
+      projectColor: asColor(task.project_color),
+    }));
 }
 
 export type SavedTemplate = { id: string; name: string; description: string; createdBy: string | null };
 
 export async function listSavedTemplates(workspaceId: string): Promise<SavedTemplate[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("project_templates")
-    .select("id, name, description, created_by")
-    .eq("workspace_id", workspaceId)
-    .order("created_at", { ascending: false });
-  if (error) {
-    throw new Error("Could not load saved templates.");
-  }
-  return data.map((row) => ({ id: row.id, name: row.name, description: row.description, createdBy: row.created_by }));
+  const rows = await asCurrentUser((db) =>
+    db.query<{ id: string; name: string; description: string; created_by: string | null }>(
+      "select id, name, description, created_by from public.project_templates where workspace_id = $1 order by created_at desc",
+      [workspaceId],
+    ),
+  );
+  return rows.map((row) => ({ id: row.id, name: row.name, description: row.description, createdBy: row.created_by }));
+}
+
+/** The team's saved templates with their full plans, newest first, for the new project wizard. */
+export async function listSavedTemplateDefinitions(
+  workspaceId: string,
+): Promise<{ id: string; name: string; description: string; definition: unknown }[]> {
+  return asCurrentUser((db) =>
+    db.query<{ id: string; name: string; description: string; definition: unknown }>(
+      "select id, name, description, definition from public.project_templates where workspace_id = $1 order by created_at desc",
+      [workspaceId],
+    ),
+  );
 }

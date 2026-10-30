@@ -1,6 +1,5 @@
-import type { Enums } from "@/lib/supabase/database.types";
-
-export type WorkspaceRole = Enums<"workspace_role">;
+// Mirrors the database's workspace_role enum (checked in db/tests/hardening.test.sql).
+export type WorkspaceRole = "owner" | "admin" | "member" | "viewer";
 
 export const WORKSPACE_ROLES: readonly WorkspaceRole[] = ["owner", "admin", "member", "viewer"];
 

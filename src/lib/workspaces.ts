@@ -4,9 +4,9 @@ import { notFound } from "next/navigation";
 import { cache } from "react";
 
 import { requireUser } from "@/lib/auth";
+import { asCurrentUser, withUser } from "@/lib/db";
 import type { WorkspaceRole } from "@/lib/permissions";
-import { signAvatarPaths } from "@/lib/profiles";
-import { createClient } from "@/lib/supabase/server";
+import { avatarUrl } from "@/lib/profiles";
 
 export type WorkspaceSummary = {
   id: string;
@@ -27,20 +27,16 @@ export type WorkspaceMember = {
 /** Every workspace the signed-in user belongs to, with their role, A to Z. */
 export const listMyWorkspaces = cache(async (): Promise<WorkspaceSummary[]> => {
   const user = await requireUser();
-  const supabase = await createClient();
-
-  const { data, error } = await supabase
-    .from("workspace_members")
-    .select("role, workspace:workspaces!inner(id, name, slug)")
-    .eq("user_id", user.id);
-
-  if (error) {
-    throw new Error("Could not load your workspaces.");
-  }
-
-  return data
-    .map(({ role, workspace }) => ({ ...workspace, role }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const rows = await withUser(user.id, (db) =>
+    db.query<WorkspaceSummary>(
+      `select w.id, w.name, w.slug, m.role
+       from public.workspace_members m
+       join public.workspaces w on w.id = m.workspace_id
+       where m.user_id = $1`,
+      [user.id],
+    ),
+  );
+  return rows.sort((a, b) => a.name.localeCompare(b.name));
 });
 
 /**
@@ -60,30 +56,26 @@ export const getWorkspaceForUser = cache(async (slug: string): Promise<Workspace
 
 const ROLE_ORDER: Record<WorkspaceRole, number> = { owner: 0, admin: 1, member: 2, viewer: 3 };
 
-export async function listWorkspaceMembers(workspaceId: string): Promise<WorkspaceMember[]> {
-  const supabase = await createClient();
-
-  const { data, error } = await supabase
-    .from("workspace_members")
-    .select("role, created_at, profile:profiles!inner(id, full_name, email, avatar_path)")
-    .eq("workspace_id", workspaceId);
-
-  if (error) {
-    throw new Error("Could not load workspace members.");
-  }
-
-  const avatarUrls = await signAvatarPaths(
-    data.flatMap(({ profile }) => (profile.avatar_path ? [profile.avatar_path] : [])),
+// Cached per request: the board, the task drawer, comments and attachments all need it.
+export const listWorkspaceMembers = cache(async (workspaceId: string): Promise<WorkspaceMember[]> => {
+  const rows = await asCurrentUser((db) =>
+    db.query<{ role: WorkspaceRole; joined_at: string; id: string; full_name: string; email: string; avatar_path: string | null }>(
+      `select m.role, m.created_at as joined_at, p.id, p.full_name, p.email, p.avatar_path
+       from public.workspace_members m
+       join public.profiles p on p.id = m.user_id
+       where m.workspace_id = $1`,
+      [workspaceId],
+    ),
   );
 
-  return data
-    .map(({ role, created_at, profile }) => ({
-      userId: profile.id,
-      fullName: profile.full_name,
-      email: profile.email,
-      avatarUrl: profile.avatar_path ? (avatarUrls.get(profile.avatar_path) ?? null) : null,
-      role,
-      joinedAt: created_at,
+  return rows
+    .map((row) => ({
+      userId: row.id,
+      fullName: row.full_name,
+      email: row.email,
+      avatarUrl: avatarUrl(row.avatar_path),
+      role: row.role,
+      joinedAt: row.joined_at,
     }))
     .sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || a.fullName.localeCompare(b.fullName));
-}
+});

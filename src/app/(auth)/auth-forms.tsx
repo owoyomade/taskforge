@@ -105,12 +105,14 @@ export function ForgotPasswordForm() {
   );
 }
 
-export function ResetPasswordForm() {
+export function ResetPasswordForm({ token }: { token: string }) {
   const [state, formAction, isPending] = useActionState(resetPassword, initialFormState);
 
   return (
     <form action={formAction} className="grid gap-4" noValidate>
       <FormMessage state={state} />
+      {/* The one-time token from the emailed link; Better Auth checks it again on save. */}
+      <input type="hidden" name="token" value={token} />
       <FormField
         label="New password"
         name="password"

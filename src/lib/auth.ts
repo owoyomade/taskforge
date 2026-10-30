@@ -1,27 +1,26 @@
 import "server-only";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/lib/better-auth";
 
 export type CurrentUser = { id: string; email: string };
 
 /**
  * The signed-in user for this request, or null.
  *
- * getClaims() verifies the session token's signature instead of trusting
- * the cookie blindly. React's cache() means calling this from a layout, a
- * page and several components still verifies only once per request.
+ * Better Auth looks the session cookie up in auth.sessions, so a forged or
+ * expired cookie gets null. React's cache() means calling this from a
+ * layout, a page and several components still checks only once per request.
  */
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-  const claims = data?.claims;
-  if (!claims?.sub) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) {
     return null;
   }
-  return { id: claims.sub, email: claims.email ?? "" };
+  return { id: session.user.id, email: session.user.email };
 });
 
 /** Like getCurrentUser, but sends signed-out visitors to the sign-in page. */

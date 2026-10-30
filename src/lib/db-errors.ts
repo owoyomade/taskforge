@@ -3,7 +3,7 @@ type DatabaseError = { code?: string; message: string };
 const GENERIC_MESSAGE = "Something went wrong. Please try again.";
 
 /**
- * Turns a Supabase/Postgres error into a message that is safe to show users.
+ * Turns a Postgres error into a message that is safe to show users.
  *
  * Raw database errors can mention table names, constraints or SQL, so only
  * errors we raised ourselves (SQLSTATE TF001, see the migrations) pass

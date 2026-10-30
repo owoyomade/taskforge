@@ -1,7 +1,7 @@
 import "server-only";
 
 import { describeActivity } from "@/lib/activity-text";
-import { createClient } from "@/lib/supabase/server";
+import { asCurrentUser } from "@/lib/db";
 import { listWorkspaceMembers } from "@/lib/workspaces";
 
 export type ActivityItem = {
@@ -23,19 +23,26 @@ export async function listActivity(
   workspaceId: string,
   { projectId, limit = 50 }: { projectId?: string; limit?: number } = {},
 ): Promise<ActivityItem[]> {
-  const supabase = await createClient();
-  let query = supabase
-    .from("audit_events")
-    .select("id, actor_id, event_type, summary, project_id, task_id, created_at")
-    .eq("workspace_id", workspaceId)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  if (projectId) query = query.eq("project_id", projectId);
-
-  const [{ data, error }, members] = await Promise.all([query, listWorkspaceMembers(workspaceId)]);
-  if (error) {
-    throw new Error("Could not load activity.");
-  }
+  const [data, members] = await Promise.all([
+    asCurrentUser((db) =>
+      db.query<{
+        id: number;
+        actor_id: string | null;
+        event_type: string;
+        summary: Record<string, unknown> | null;
+        project_id: string | null;
+        task_id: string | null;
+        created_at: string;
+      }>(
+        `select id, actor_id, event_type, summary, project_id, task_id, created_at
+         from public.audit_events
+         where workspace_id = $1 and ($2::uuid is null or project_id = $2)
+         order by created_at desc limit $3`,
+        [workspaceId, projectId ?? null, limit],
+      ),
+    ),
+    listWorkspaceMembers(workspaceId),
+  ]);
 
   const names = new Map(members.map((member) => [member.userId, member.fullName || member.email]));
   const nameOf = (id: string) => names.get(id) ?? "a former member";

@@ -3,9 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import { requireUser } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
-
-const AVATAR_URL_TTL_SECONDS = 60 * 60;
+import { withUser } from "@/lib/db";
 
 export type ProfileView = {
   id: string;
@@ -16,53 +14,31 @@ export type ProfileView = {
 };
 
 /**
- * Exchanges private avatar paths for short-lived signed URLs.
- * Storage policies decide which paths the current user may sign; any path
- * they may not see simply comes back without a URL.
+ * The address a profile photo is shown from. The /avatars route checks
+ * can_view_avatar() in the database before sending the file, so the
+ * address is useless to anyone who doesn't share a workspace with the person.
  */
-export async function signAvatarPaths(paths: string[]): Promise<Map<string, string>> {
-  const unique = [...new Set(paths)];
-  if (unique.length === 0) {
-    return new Map();
-  }
-
-  const supabase = await createClient();
-  const { data, error } = await supabase.storage.from("avatars").createSignedUrls(unique, AVATAR_URL_TTL_SECONDS);
-  if (error || !data) {
-    // A missing avatar falls back to initials, so this isn't worth failing the page over.
-    return new Map();
-  }
-
-  const urls = new Map<string, string>();
-  for (const item of data) {
-    if (item.path && item.signedUrl && !item.error) {
-      urls.set(item.path, item.signedUrl);
-    }
-  }
-  return urls;
+export function avatarUrl(path: string | null): string | null {
+  return path ? `/avatars/${path}` : null;
 }
 
 export const getMyProfile = cache(async (): Promise<ProfileView> => {
   const user = await requireUser();
-  const supabase = await createClient();
-
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, email, full_name, avatar_path")
-    .eq("id", user.id)
-    .single();
-
-  if (error) {
+  const [data] = await withUser(user.id, (db) =>
+    db.query<{ id: string; email: string; full_name: string; avatar_path: string | null }>(
+      "select id, email, full_name, avatar_path from public.profiles where id = $1",
+      [user.id],
+    ),
+  );
+  if (!data) {
     throw new Error("Could not load your profile.");
   }
-
-  const urls = data.avatar_path ? await signAvatarPaths([data.avatar_path]) : new Map<string, string>();
 
   return {
     id: data.id,
     email: data.email,
     fullName: data.full_name,
     avatarPath: data.avatar_path,
-    avatarUrl: data.avatar_path ? (urls.get(data.avatar_path) ?? null) : null,
+    avatarUrl: avatarUrl(data.avatar_path),
   };
 });

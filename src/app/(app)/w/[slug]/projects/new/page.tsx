@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { NewProjectWizard, type WizardTemplate } from "@/components/projects/new-project-wizard";
-import { createClient } from "@/lib/supabase/server";
+import { listSavedTemplateDefinitions } from "@/lib/projects";
 import { dateRange } from "@/lib/task-filters";
 import { templateDefinitionSchema } from "@/lib/templates/schema";
 import { getWorkspaceForUser } from "@/lib/workspaces";
@@ -18,13 +18,8 @@ export default async function NewProjectPage({ params }: PageProps<"/w/[slug]/pr
 
   // The team's own templates, shown first. Any that no longer pass
   // validation are skipped rather than breaking the page.
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("project_templates")
-    .select("id, name, description, definition")
-    .eq("workspace_id", workspace.id)
-    .order("created_at", { ascending: false });
-  const savedTemplates: WizardTemplate[] = (data ?? []).flatMap((row) => {
+  const saved = await listSavedTemplateDefinitions(workspace.id);
+  const savedTemplates: WizardTemplate[] = saved.flatMap((row) => {
     const parsed = templateDefinitionSchema.safeParse(row.definition);
     return parsed.success
       ? [

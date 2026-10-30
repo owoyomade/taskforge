@@ -55,18 +55,16 @@ test("a user resets a forgotten password with the emailed link", async ({ page }
   await expect(page.getByText(/a reset link is on its way/)).toBeVisible();
 
   await expect
-    .poll(async () => (await latestAuthLink(email)).includes("type=recovery"), { timeout: 15_000 })
+    .poll(async () => (await latestAuthLink(email)).includes("/reset-password/"), { timeout: 15_000 })
     .toBe(true);
   await page.goto(await latestAuthLink(email));
   await expect(page.getByRole("heading", { name: "Choose a new password" })).toBeVisible();
   await page.getByLabel("New password", { exact: true }).fill("changed2026");
   await page.getByLabel("Confirm new password").fill("changed2026");
   await page.getByRole("button", { name: "Save new password" }).click();
-  await expect(page.getByRole("button", { name: /Current workspace: Reset Space/ })).toBeVisible();
 
-  // The new password works for a fresh sign-in.
-  await page.context().clearCookies();
-  await page.goto("/sign-in");
+  // Resetting signs out everywhere, so the new password is used straight away.
+  await expect(page.getByText("Your password has been changed. Sign in with the new one.")).toBeVisible();
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill("changed2026");
   await page.getByRole("button", { name: "Sign in" }).click();

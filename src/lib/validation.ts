@@ -9,8 +9,7 @@ import { COLORS, PRIORITIES, PROJECT_STATUSES } from "@/lib/project-constants";
 // is accepted and stored as "ana@example.com".
 const email = z.string().trim().toLowerCase().max(254).pipe(z.email("Enter a valid email address."));
 
-// Matches the Supabase Auth settings in supabase/config.toml. 72 is bcrypt's
-// input limit: anything longer would be silently truncated.
+// Matches the sign-in settings in src/lib/better-auth.ts (8 to 72 characters).
 export const password = z
   .string()
   .min(8, "Use at least 8 characters.")
@@ -27,7 +26,7 @@ const fullName = z
 export const signUpSchema = z.object({ fullName, email, password });
 
 // Sign-in deliberately doesn't apply the password rules: an old account might
-// predate them, and the error should come from Supabase, not from us.
+// predate them, and the error should come from the sign-in check, not from us.
 export const signInSchema = z.object({
   email,
   password: z.string().min(1, "Enter your password.").max(72),

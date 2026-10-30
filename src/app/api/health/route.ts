@@ -1,7 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
-
-import { publicEnv } from "@/lib/env";
-import type { Database } from "@/lib/supabase/database.types";
+import { asSignedOut } from "@/lib/db";
 
 /**
  * GET /api/health: for uptime monitors and deploy checks.
@@ -13,16 +10,22 @@ import type { Database } from "@/lib/supabase/database.types";
  */
 export async function GET() {
   const startedAt = Date.now();
-  const supabase = createClient<Database>(
-    publicEnv.NEXT_PUBLIC_SUPABASE_URL,
-    publicEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
-    { auth: { persistSession: false, autoRefreshToken: false } },
-  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("Database didn't answer within 3 seconds")), 3000);
+  });
 
-  const { data, error } = await supabase.rpc("health_check").abortSignal(AbortSignal.timeout(3000));
-  const healthy = !error && data === true;
-  if (!healthy) {
-    console.error(JSON.stringify({ level: "error", context: "health", code: error?.code, message: error?.message }));
+  let healthy = false;
+  try {
+    const [row] = await Promise.race([
+      asSignedOut((db) => db.query<{ ok: boolean }>("select public.health_check() as ok")),
+      timeout,
+    ]);
+    healthy = row?.ok === true;
+  } catch (error) {
+    console.error(JSON.stringify({ level: "error", context: "health", message: error instanceof Error ? error.message : String(error) }));
+  } finally {
+    clearTimeout(timer);
   }
 
   return Response.json(

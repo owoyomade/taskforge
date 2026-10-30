@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { signIn } from "./helpers";
 
-// Uses the seed data from supabase/seed.sql.
+// Uses the seed data from db/seed.sql.
 const WEBSITE_PROJECT = "/w/acme-studio/p/30000000-0000-4000-8000-000000000001";
 
 /** Alice creates a scratch project with one task, so tests don't disturb the demo data. */

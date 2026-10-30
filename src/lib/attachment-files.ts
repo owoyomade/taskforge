@@ -1,42 +1,35 @@
 import "server-only";
 
-import { createClient } from "@/lib/supabase/server";
-
-// The API returns at most 1,000 rows per request, and Storage removes at
-// most 1,000 files per call, so work in pages of that size.
-const PAGE_SIZE = 1000;
+import { asCurrentUser } from "@/lib/db";
+import { deleteFiles } from "@/lib/file-storage";
 
 /**
- * Deletes the stored files for every attachment in a project or workspace
- * that's about to be deleted.
- *
- * Deleting a project removes its attachment *records* automatically
- * (ON DELETE CASCADE), but the database can't reach into Storage, so the
- * files themselves would be left behind, using up the storage quota with
- * nothing pointing at them. This has to run *before* the delete: the
- * storage policies check the project, and once it's gone nobody is
- * allowed to remove its files.
- *
- * Runs as the signed-in user; callers have already checked they manage
- * everything being deleted. Returns false if any file couldn't be removed.
+ * Deleting a project or workspace removes its attachment *records*
+ * automatically (ON DELETE CASCADE), but the files live outside the
+ * database. So the caller notes the file paths first, deletes the project
+ * or workspace, and only then removes the files: if the delete fails,
+ * nothing is lost.
  */
-export async function removeAttachmentFiles(scope: { projectId: string } | { workspaceId: string }): Promise<boolean> {
-  const supabase = await createClient();
-  let succeeded = true;
+export async function attachmentPathsIn(scope: { projectId: string } | { workspaceId: string }): Promise<string[]> {
+  const rows = await asCurrentUser((db) =>
+    "projectId" in scope
+      ? db.query<{ storage_path: string }>("select storage_path from public.attachments where project_id = $1", [scope.projectId])
+      : db.query<{ storage_path: string }>("select storage_path from public.attachments where workspace_id = $1", [scope.workspaceId]),
+  );
+  return rows.map((row) => row.storage_path);
+}
 
-  for (let from = 0; ; from += PAGE_SIZE) {
-    let query = supabase.from("attachments").select("storage_path");
-    query = "projectId" in scope ? query.eq("project_id", scope.projectId) : query.eq("workspace_id", scope.workspaceId);
-    const { data, error } = await query.order("storage_path").range(from, from + PAGE_SIZE - 1);
-    if (error) return false;
-    if (data.length === 0) break;
+// Vercel Blob deletes at most 1,000 files per call.
+const BATCH_SIZE = 1000;
 
-    const { error: removeError } = await supabase.storage.from("attachments").remove(data.map((row) => row.storage_path));
-    if (removeError) {
-      succeeded = false;
-      console.error(JSON.stringify({ level: "error", context: "removeAttachmentFiles", message: removeError.message }));
+/** Removes stored files after their records are gone. Failures are logged; the records are already deleted. */
+export async function removeStoredAttachments(paths: string[]): Promise<void> {
+  for (let start = 0; start < paths.length; start += BATCH_SIZE) {
+    try {
+      await deleteFiles("attachments", paths.slice(start, start + BATCH_SIZE));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(JSON.stringify({ level: "error", context: "removeStoredAttachments", message }));
     }
-    if (data.length < PAGE_SIZE) break;
   }
-  return succeeded;
 }

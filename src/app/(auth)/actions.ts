@@ -1,13 +1,14 @@
 "use server";
 
+import { isAPIError } from "better-auth/api";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { requireUser } from "@/lib/auth";
-import { authErrorMessage } from "@/lib/auth-errors";
-import { publicEnv } from "@/lib/env";
+import { authErrorMessage, TOO_MANY_ATTEMPTS } from "@/lib/auth-errors";
+import { auth } from "@/lib/better-auth";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { safeRedirectPath } from "@/lib/safe-redirect";
-import { createClient } from "@/lib/supabase/server";
+import { passwordAttemptsAllowed, recordWrongPassword, takeAttempt } from "@/lib/sign-in-limits";
 import { forgotPasswordSchema, resetPasswordSchema, signInSchema, signUpSchema } from "@/lib/validation";
 
 export async function signUp(_previous: FormState, formData: FormData): Promise<FormState> {
@@ -16,23 +17,22 @@ export async function signUp(_previous: FormState, formData: FormData): Promise<
   if (!parsed.success) {
     return validationError(parsed.error, values);
   }
+  if (!(await takeAttempt("sign-up"))) {
+    return { status: "error", message: TOO_MANY_ATTEMPTS, values };
+  }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({
-    email: parsed.data.email,
-    password: parsed.data.password,
-    options: {
-      data: { full_name: parsed.data.fullName },
-      emailRedirectTo: `${publicEnv.NEXT_PUBLIC_SITE_URL}/onboarding`,
-    },
-  });
-
-  if (error) {
+  try {
+    await auth.api.signUpEmail({
+      // After confirming, /dashboard opens their workspace, or workspace setup for a new person.
+      body: { name: parsed.data.fullName, email: parsed.data.email, password: parsed.data.password, callbackURL: "/dashboard" },
+      headers: await headers(),
+    });
+  } catch (error) {
     return { status: "error", message: authErrorMessage(error), values };
   }
 
-  // Supabase answers the same way whether or not the email is already
-  // registered, so this page can't be used to discover who has an account.
+  // Better Auth answers the same way whether or not the email already has an
+  // account, so this page can't be used to discover who has signed up.
   redirect("/check-email");
 }
 
@@ -42,10 +42,18 @@ export async function signIn(_previous: FormState, formData: FormData): Promise<
   if (!parsed.success) {
     return validationError(parsed.error, values);
   }
+  if (!(await takeAttempt("sign-in")) || !(await passwordAttemptsAllowed(parsed.data.email))) {
+    return { status: "error", message: TOO_MANY_ATTEMPTS, values };
+  }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword(parsed.data);
-  if (error) {
+  try {
+    // nextCookies() (see better-auth.ts) puts the session cookie on this response.
+    // callbackURL is where a fresh confirmation link leads, if the email isn't confirmed yet.
+    await auth.api.signInEmail({ body: { ...parsed.data, callbackURL: "/dashboard" }, headers: await headers() });
+  } catch (error) {
+    if (isAPIError(error) && error.body?.code === "INVALID_EMAIL_OR_PASSWORD") {
+      await recordWrongPassword(parsed.data.email);
+    }
     return { status: "error", message: authErrorMessage(error), values };
   }
 
@@ -58,16 +66,16 @@ export async function requestPasswordReset(_previous: FormState, formData: FormD
   if (!parsed.success) {
     return validationError(parsed.error, values);
   }
+  if (!(await takeAttempt("password-reset"))) {
+    return { status: "error", message: TOO_MANY_ATTEMPTS, values };
+  }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
-    redirectTo: `${publicEnv.NEXT_PUBLIC_SITE_URL}/reset-password`,
-  });
-
-  // Rate limits are worth reporting; anything else gets the same answer as
-  // success so the form doesn't reveal which emails have accounts.
-  if (error?.code === "over_email_send_rate_limit" || error?.code === "over_request_rate_limit") {
-    return { status: "error", message: authErrorMessage(error), values };
+  try {
+    // The emailed link opens /reset-password?token=... (Better Auth checks the token first).
+    await auth.api.requestPasswordReset({ body: { email: parsed.data.email, redirectTo: "/reset-password" }, headers: await headers() });
+  } catch (error) {
+    // Logged, but the answer stays the same so the form can't reveal which emails have accounts.
+    authErrorMessage(error);
   }
 
   return {
@@ -77,9 +85,6 @@ export async function requestPasswordReset(_previous: FormState, formData: FormD
 }
 
 export async function resetPassword(_previous: FormState, formData: FormData): Promise<FormState> {
-  // The reset link signed the user in (see /auth/confirm), so a session must exist.
-  await requireUser();
-
   const parsed = resetPasswordSchema.safeParse({
     password: textField(formData, "password"),
     confirmPassword: textField(formData, "confirmPassword"),
@@ -88,17 +93,17 @@ export async function resetPassword(_previous: FormState, formData: FormData): P
     return validationError(parsed.error);
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.updateUser({ password: parsed.data.password });
-  if (error) {
+  try {
+    await auth.api.resetPassword({ body: { newPassword: parsed.data.password, token: textField(formData, "token") }, headers: await headers() });
+  } catch (error) {
     return { status: "error", message: authErrorMessage(error) };
   }
 
-  redirect("/dashboard");
+  // Resetting signs out every browser, so the person signs in afresh with the new password.
+  redirect("/sign-in?reset=done");
 }
 
 export async function signOut(): Promise<void> {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  await auth.api.signOut({ headers: await headers() });
   redirect("/sign-in");
 }

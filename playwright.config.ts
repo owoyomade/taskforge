@@ -5,14 +5,14 @@ import { defineConfig, devices } from "@playwright/test";
 export const E2E_BASE_URL = "http://localhost:3100";
 
 // End-to-end tests drive a real browser against a production build of the app
-// and the local Supabase stack. Before running: `npm run db:start` and
-// `npm run db:reset`. A production build is used rather than `next dev`
+// and the local database and Mailpit. Before running: `npm run db:up` and
+// `npm run db:reset` (or use `npm run test:e2e:fresh`, which resets for you). A production build is used rather than `next dev`
 // because it's closer to what users get and stays stable under parallel tests.
 export default defineConfig({
   testDir: "tests/e2e",
   fullyParallel: true,
   // Two browsers at a time: each save re-renders a whole board, and more
-  // parallel sessions than that overload a single local server and Supabase.
+  // parallel sessions than that overload a single local server and database.
   workers: 2,
   expect: { timeout: 10_000 },
   forbidOnly: Boolean(process.env.CI),
@@ -28,7 +28,7 @@ export default defineConfig({
     // Accessibility scans and security checks run once the feature tests
     // finish. Scanning ~30 pages is CPU-heavy, and running it alongside the
     // feature tests slowed the local server enough to make them flaky. It
-    // also spreads out sign-ins under Supabase's limit of 30 per 5 minutes.
+    // also spreads out sign-ins under the per-address sign-in limits.
     {
       name: "hardening",
       use: { ...devices["Desktop Chrome"] },
@@ -39,6 +39,8 @@ export default defineConfig({
   webServer: {
     command: "npm run build && npx next start --port 3100",
     url: E2E_BASE_URL,
+    // The suite signs in many times from one address; raise (not remove) the per-address limits.
+    env: { AUTH_IP_LIMIT_MULTIPLIER: "20" },
     reuseExistingServer: !process.env.CI,
     timeout: 240_000,
   },

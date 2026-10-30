@@ -1,109 +1,107 @@
 # Deploying and running Taskforge
 
-This guide takes Taskforge from your laptop to the internet using a hosted
-Supabase project (database, sign-in, file storage) and Vercel (the web
-app). It also covers monitoring, backups and how to ship later changes.
+This guide puts Taskforge on the internet for free:
 
-You need accounts at [supabase.com](https://supabase.com) and
-[vercel.com](https://vercel.com). Both have free tiers; see "Free-tier
-constraints" in [architecture.md](architecture.md) for what they allow.
-Vercel's free Hobby plan is for non-commercial use only.
-
-## What runs where
-
-| Piece | Where | Notes |
+| Piece | Service | Free plan notes |
 | --- | --- | --- |
-| Next.js app | Vercel | Built from the GitHub repo on every push to `main` |
-| Postgres, Row Level Security, scheduled jobs | Supabase | Schema comes from `supabase/migrations/` |
-| Sign-in and auth emails | Supabase Auth | Needs your own email provider (SMTP) for real users |
-| Avatars and attachments | Supabase Storage | Private buckets, created by the migrations |
+| Website, sign-in, scheduled clean-up | [Vercel](https://vercel.com) Hobby | For personal, non-commercial projects |
+| Database | [Neon](https://neon.com) Postgres | Sleeps when idle; the first visit after a quiet spell takes a moment longer |
+| Uploaded files (photos, attachments) | Vercel Blob, private store | About 1 GB of storage |
+| Sign-up and password-reset emails | Your Gmail account | A few hundred emails a day |
 
-The app only uses the **publishable** Supabase key. No secret or service
-role key is needed anywhere, so there is none to leak.
+You'll create the accounts yourself, and you'll type every password and
+secret into the services yourself. Nothing secret goes into this
+repository.
 
-## 1. Create the Supabase project
+## 1. Create the Neon database
 
-1. In the Supabase dashboard, create a new project. Pick the region
-   closest to your users. Save the database password in a password manager.
-   You'll need it for backups.
-2. From this folder, link the project and apply the migrations:
+1. Sign up at neon.com (signing in with GitHub is easiest) and create a
+   project. Pick the region closest to your users and **Postgres 17**, the
+   version the local database uses.
+2. On the project dashboard, click **Connect** and copy the connection
+   string. It looks like
+   `postgresql://neondb_owner:PASSWORD@ep-…-pooler.REGION.aws.neon.tech/neondb?sslmode=require`.
+   That's the **owner** login. Keep it in your password manager.
+3. Invent two strong passwords (20+ characters; a password manager can
+   generate them). They're for the two logins the app uses:
+   `taskforge_app` (the app) and `taskforge_auth` (the sign-in library).
+4. In this folder, create a file named `.env.production.local`. It's
+   git-ignored, so it stays on your computer. Put these lines in it, using
+   your own values:
 
    ```bash
-   npx supabase login
+   DATABASE_OWNER_URL=postgresql://neondb_owner:OWNER-PASSWORD@HOST/neondb?sslmode=require
+   DATABASE_URL=postgresql://taskforge_app:APP-PASSWORD@HOST/neondb?sslmode=require
+   DATABASE_AUTH_URL=postgresql://taskforge_auth:AUTH-PASSWORD@HOST/neondb?sslmode=require
+   ```
+
+   `HOST` is the same in all three lines: the part after `@` and before
+   `/neondb` in Neon's connection string.
+5. Set up the database: it creates every table, rule and function, then
+   lets the two logins sign in with your passwords. Demo data is **not**
+   loaded. The demo accounts and their shared password must never exist in
+   production.
+
+   ```bash
+   node --env-file=.env.production.local scripts/db.mts migrate
    ```
 
    ```bash
-   npx supabase link --project-ref your-project-ref
+   node --env-file=.env.production.local scripts/db.mts roles
    ```
 
-   ```bash
-   npx supabase db push
-   ```
+## 2. Prepare Gmail for sending
 
-   The project ref is the random id in your dashboard URL
-   (`supabase.com/dashboard/project/<ref>`). `db push` creates every table,
-   policy, function, storage bucket and the daily retention job.
-   It does **not** load `seed.sql`. The demo accounts and their shared
-   password must never exist in production.
-3. Check the result:
+1. Your Google account needs 2-Step Verification on (Google Account →
+   Security).
+2. Create an app password: Google Account → Security → 2-Step Verification
+   → App passwords. Name it "Taskforge". Google shows a 16-letter password
+   once. Copy it into your password manager.
 
-   ```bash
-   npx supabase db advisors --linked
-   ```
+Emails will come from your Gmail address. For a portfolio that's fine. A
+real product would use its own domain and an email service.
 
-   You should see no security warnings. "Unused index" notes are normal on
-   a brand-new database.
+## 3. Deploy on Vercel
 
-## 2. Configure Supabase Auth
-
-Local settings in `supabase/config.toml` are **not** copied to the hosted
-project, so set these in the dashboard under **Authentication**:
-
-- **URL Configuration:** set Site URL to your app's address (for example
-  `https://taskforge.vercel.app`). Add `https://taskforge.vercel.app/**` to
-  Redirect URLs. Update both if you later add a custom domain.
-- **Sign In / Providers → Email:** keep "Confirm email" on. Set minimum
-  password length to 8 and require letters and digits.
-- **Emails → Templates:** paste the contents of
-  `supabase/templates/confirmation.html` into "Confirm signup" and
-  `supabase/templates/recovery.html` into "Reset password". These link to
-  Taskforge's `/auth/confirm` page; the default templates don't.
-- **Emails → SMTP Settings:** connect an email provider (Resend, Postmark,
-  Amazon SES and others work). Supabase's built-in mailer only sends a few
-  emails an hour, which is enough to test, not to launch.
-- **Rate Limits:** keep the defaults. They limit sign-in attempts per IP
-  address. (The local config raises nothing; tests work around the limit.)
-
-## 3. Deploy the app on Vercel
-
-1. In Vercel, choose **Add New → Project** and import the GitHub
-   repository. Vercel detects Next.js; keep the default build settings.
-2. Under **Environment Variables**, add these for Production (and Preview
-   if you'll use preview deployments):
+1. Sign up at vercel.com with GitHub. Choose **Add New → Project** and
+   import the Taskforge repository. Keep the default build settings.
+2. Before the first deploy, open **Environment Variables** and add:
 
    | Name | Value |
    | --- | --- |
-   | `NEXT_PUBLIC_SITE_URL` | Your app's URL, e.g. `https://taskforge.vercel.app` |
-   | `NEXT_PUBLIC_SUPABASE_URL` | Supabase: Project Settings → API → Project URL |
-   | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase: Project Settings → API Keys → Publishable key |
+   | `NEXT_PUBLIC_SITE_URL` | Your site's address, e.g. `https://taskforge-yourname.vercel.app` |
+   | `DATABASE_URL` | The `taskforge_app` line from step 1 |
+   | `DATABASE_AUTH_URL` | The `taskforge_auth` line from step 1 |
+   | `BETTER_AUTH_SECRET` | A new random value: `node -e 'console.log(require("crypto").randomBytes(32).toString("base64url"))'` |
+   | `SMTP_HOST` | `smtp.gmail.com` |
+   | `SMTP_PORT` | `465` |
+   | `SMTP_USER` | Your Gmail address |
+   | `SMTP_PASSWORD` | The Gmail app password |
+   | `EMAIL_FROM` | `Taskforge <your.address@gmail.com>` |
+   | `CRON_SECRET` | Another random value (same command as above) |
 
-   `NEXT_PUBLIC_` values are built into the app, so after changing one,
-   redeploy for it to take effect.
-3. Deploy. If the URL Vercel gives you differs from what you entered in
-   step 2 of the Supabase setup, update the Supabase Site URL and redeploy.
+   Never add `DATABASE_OWNER_URL` to Vercel. The app doesn't need it, and
+   it can do anything to the database.
+3. Open the project's **Storage** tab, create a **Blob** store, choose
+   **Private** access, and connect it to the project. Vercel adds
+   `BLOB_READ_WRITE_TOKEN` for you.
+4. Deploy. If Vercel gives you a different address from the one you put in
+   `NEXT_PUBLIC_SITE_URL`, update that variable and redeploy: it's built
+   into the app, and the emailed links use it.
+
+The daily clean-up (`vercel.json`) is picked up automatically. Vercel calls
+`/api/cron/purge` at 03:17 UTC with your `CRON_SECRET`.
 
 ## 4. Check the live site
 
-Do these once after the first deploy, and again after big changes:
-
 ```bash
-curl -s https://your-app.vercel.app/api/health
+curl -s https://your-site.vercel.app/api/health
 ```
 
 That should print `{"status":"ok","database":"ok",...}`. Then:
 
 ```bash
-curl -sI https://your-app.vercel.app/sign-in
+curl -sI https://your-site.vercel.app/sign-in
 ```
 
 The headers should include `content-security-policy` (with a `nonce-`),
@@ -114,7 +112,7 @@ In a browser:
 
 1. Sign up with a real email address and confirm it from the email.
 2. Create a project from a template, add a task, and drag it to another column.
-3. Attach a small file to a task and download it again.
+3. Upload a profile photo, attach a file to a task, and download it again.
 4. Invite a second address of yours, accept from that account, and check
    that each account only sees its own workspaces.
 5. Open the browser console (F12). There should be no red
@@ -123,63 +121,45 @@ In a browser:
 ## Monitoring
 
 - **Uptime:** point a free uptime monitor (for example UptimeRobot or Better
-  Stack) at `https://your-app/api/health` every 5 minutes, and alert on
-  anything other than HTTP 200. That endpoint checks the database too.
+  Stack) at `/api/health` every 5 minutes, and alert on anything but HTTP 200.
+  Expect the odd slow answer after Neon has been asleep.
 - **Errors:** every server error is logged as one line of JSON with
   `"level":"error"`, the route pattern and an error reference. In Vercel,
-  open the project → **Logs**, and filter for `level":"error`. When a user
-  reports a problem, ask for the "Error reference" shown on the error
-  page and search the logs for it. Logs never contain passwords, tokens,
-  task text or comment text.
-- **Database:** the Supabase dashboard's **Reports** show CPU, disk and
-  slow queries; **Advisors** shows security and performance warnings. Run
-  `npx supabase db advisors --linked` after each migration.
-- **Retention job:** in the SQL editor, check that the daily clean-up ran:
-
-  ```sql
-  select status, return_message, start_time
-  from cron.job_run_details order by start_time desc limit 5;
-  ```
+  open the project → **Logs** and filter for `level":"error`. When someone
+  reports a problem, ask for the "Error reference" on the error page and
+  search for it. Logs never contain passwords, tokens, task text or comment
+  text.
+- **Clean-up job:** Vercel → project → **Settings → Cron Jobs** shows each
+  run; the log line `"context":"cron.purge"` says how much was removed.
+- **Database:** Neon's console shows storage used and recent activity.
 
 ## Backups and restore
 
-On Supabase's free tier there are **no automatic backups you can
-download**. The paid Pro plan adds daily backups and point-in-time
-recovery. Until then, take your own backups, and always take one right
-before `db push`.
-
-Back up (you'll be asked for the database password):
+Neon keeps a short history you can restore from in its console (see its
+docs for how far back the free plan goes). For your own copies, use the
+standard Postgres tools (`brew install postgresql@17` provides them):
 
 ```bash
-mkdir -p backups && npx supabase db dump --linked -f backups/roles.sql --role-only
+mkdir -p backups && pg_dump --no-owner --format=custom --file=backups/taskforge-$(date +%F).dump "$DATABASE_OWNER_URL"
+```
+
+Run it with the owner URL from `.env.production.local`. `backups/` is
+git-ignored. Backups contain everyone's data, including email addresses,
+so keep them private and encrypted, and delete old ones you don't need.
+
+Restore into a **new, empty** Neon project (never over a live one), then
+recreate the two logins and point Vercel at it:
+
+```bash
+pg_restore --no-owner --dbname="NEW-OWNER-URL" backups/taskforge-YYYY-MM-DD.dump
 ```
 
 ```bash
-npx supabase db dump --linked -f backups/schema.sql
+node --env-file=.env.production.local scripts/db.mts roles
 ```
 
-```bash
-npx supabase db dump --linked -f backups/data.sql --use-copy --data-only
-```
-
-`backups/` is git-ignored. These files contain everyone's data, including
-email addresses, so keep them somewhere private and encrypted, never in
-the repository or a shared folder. Delete old ones you don't need.
-
-The dump covers the database only. Uploaded files live in Storage; to keep
-copies, download the `avatars` and `attachments` buckets from the
-dashboard (or with the Supabase S3-compatible API).
-
-Restore into a **new, empty** Supabase project (never over a live one).
-Copy its connection string from the dashboard (**Connect** button) and run:
-
-```bash
-psql --single-transaction --variable ON_ERROR_STOP=1 --file backups/roles.sql --file backups/schema.sql --command 'SET session_replication_role = replica' --file backups/data.sql --dbname "postgresql://postgres:[YOUR-PASSWORD]@db.[NEW-REF].supabase.co:5432/postgres"
-```
-
-Then point the Vercel environment variables at the new project and
-redeploy. Practise this once on a scratch project so it isn't new to you
-on a bad day.
+(After editing the three URLs in `.env.production.local` to the new
+project.) Uploaded files live in Vercel Blob, not in the dump.
 
 ## Shipping changes
 
@@ -187,21 +167,19 @@ For each change:
 
 1. Locally: `npm run check`, `npm run test:db` and `npm run test:e2e:fresh`.
    All must pass.
-2. If there's a new migration: take a backup, then run `npx supabase db push`,
-   then `npx supabase db advisors --linked`.
+2. If there's a new migration: take a backup, then
+   `node --env-file=.env.production.local scripts/db.mts migrate`.
 3. Push to GitHub. Vercel builds and deploys `main` automatically.
 4. Check `/api/health` and the flow you changed.
 
-**Rolling back.** If a deploy breaks the app, open the Vercel project →
-**Deployments**, pick the last good one and choose **Instant Rollback**.
-Database migrations don't roll back on their own. Write a new migration
-that undoes the change, or, in a real emergency, restore a backup into a
-new project as above. That's why the backup comes before `db push`.
+**Rolling back.** If a deploy breaks the app, open Vercel → **Deployments**,
+pick the last good one and choose **Instant Rollback**. Migrations don't
+roll back on their own: write a new one that undoes the change, or restore
+a backup into a new project. That's why the backup comes first.
 
 ## Data retention
 
-A scheduled job (`taskforge-purge-expired-records`, daily at 03:17 UTC)
-deletes:
+The daily job deletes:
 
 - activity history older than 12 months,
 - notifications read more than 90 days ago, and any older than 12 months,

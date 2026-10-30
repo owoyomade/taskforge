@@ -36,10 +36,12 @@ topic. Tokens live in `src/app/globals.css`.
 | --- | --- | --- |
 | Web app | Next.js 16 (App Router), React 19, TypeScript (strict) | Server Components keep data access on the server; Server Actions give type-safe mutations without a separate API. |
 | UI | Tailwind CSS v4, shadcn/ui (Base UI primitives), lucide icons | Accessible primitives (focus, keyboard, ARIA) we own and can edit. |
-| Database and auth | Supabase: Postgres, Auth, Storage, Row Level Security | One free-tier service covers database, email/password auth and files, and RLS enforces tenancy inside the database itself. |
+| Database | Postgres 17 (Docker locally, Neon in production) with Row Level Security | RLS enforces tenancy inside the database itself, so a bug in app code can't show one team another's data. |
+| Sign-in | Better Auth (open source, runs inside the app) | Email and password with confirmation and reset links; no outside account service to depend on. |
+| Files | Vercel Blob (private store) in production, a local folder in development | Files have no public address; the app checks access before serving each one. |
 | Validation | Zod | One schema validates form input on the server and documents the rules. |
-| Tests | Vitest + Testing Library, pgTAP (`supabase test db`), Playwright | Unit, database-policy and real-browser coverage. |
-| Hosting | Vercel (app) + Supabase (data), both free tiers to start | No servers to run. |
+| Tests | Vitest + Testing Library, pgTAP (`npm run test:db`), Playwright | Unit, database-policy and real-browser coverage. |
+| Hosting | Vercel (app, files, daily job) + Neon (database), both free tiers | No servers to run. |
 
 Drag and drop uses `@dnd-kit/core` and `@dnd-kit/sortable` for mouse and
 touch. Keyboard moving is our own small handler (Space, arrow keys, Space),
@@ -48,6 +50,17 @@ of moving the card. Every card also has a "Move" menu.
 
 ### Decisions worth knowing
 
+- **How a request reaches the database.** The app logs in as
+  `taskforge_app`, which has no table access of its own. For each request
+  it opens a transaction, switches to the `authenticated` role and records
+  the signed-in user's id (`src/lib/db.ts`); RLS policies read it with
+  `auth.uid()`. A query that skipped that step would fail rather than see
+  everyone's data. Better Auth uses a second login, `taskforge_auth`, that
+  can reach only the `auth` schema (accounts, password hashes, sessions).
+- **File access is checked by the app.** Photo and attachment routes call
+  `can_view_avatar()` / RLS on `attachments` before streaming a file from
+  private storage. Deleting a project notes its file paths, deletes the
+  records, then removes the files, so a failed delete never loses files.
 - **Authorization lives in the database.** RLS policies decide what every
   query can see or change. Server Actions also check roles first, but only to
   give clear error messages; they are not what keeps data safe.
@@ -86,19 +99,23 @@ src/
       onboarding/      first workspace
       workspaces/new/  additional workspaces
       workspace-actions.ts
-    auth/confirm/      route handler for links in auth emails
+    api/auth/          Better Auth's endpoints (email confirmation and reset links)
+    api/cron/purge/    the daily clean-up, called by Vercel Cron
+    attachments/, avatars/  file downloads, after an access check
   components/          shared UI (ui/ holds shadcn primitives)
   lib/                 server data access (auth.ts, workspaces.ts, profiles.ts),
                        validation, permissions, helpers
-    supabase/          Supabase clients and generated database types
+                       db.ts (runs queries as the signed-in user), better-auth.ts,
+                       file-storage.ts, email.ts, sign-in-limits.ts
   app/api/health/      uptime check (app + database)
   instrumentation.ts   one JSON log line per server error
   proxy.ts             session refresh and Content Security Policy on every request
-supabase/
-  migrations/          SQL migrations (schema, RLS, storage policies)
-  tests/database/      pgTAP tests for RLS and role rules
-  templates/           auth email templates
+db/
+  migrations/          SQL migrations (schema, roles, RLS, functions)
+  tests/               pgTAP tests for RLS, roles and sign-in rules
   seed.sql             local demo data
+  docker/              the local Postgres image (with pgTAP)
+scripts/db.mts         migrate / roles / reset / seed
 tests/
   unit/                Vitest
   e2e/                 Playwright
@@ -106,11 +123,11 @@ tests/
 
 ## Data model
 
-Built so far: `profiles`, `workspaces`, `workspace_members`, the `avatars`
-bucket (Phase 1); `projects`, `project_members`, `board_columns`, `tasks`
+Built so far: `profiles` (with profile photos in private file storage), `workspaces`,
+`workspace_members` (Phase 1); `projects`, `project_members`, `board_columns`, `tasks`
 (including subtasks), `task_assignees`, `labels`, `task_labels`,
 `checklists`, `checklist_items` (Phase 2); `workspace_invitations`,
-`comments`, `comment_mentions`, `attachments` and the `attachments` bucket
+`comments`, `comment_mentions`, `attachments` (files in private storage)
 (Phase 3); `milestones` (shown as "phases"), `milestone_tasks` and
 `project_templates` (Phase 4a); `audit_events`, `notifications` and
 `notification_preferences` (Phase 4b). The rest is the plan for later
@@ -212,7 +229,7 @@ promote the new owner first, then demote the old one, in one transaction.
 | Foreign key indexes, once-per-query permission checks | 5 | Built |
 | Automated WCAG 2.2 AA checks (light and dark), skip link, reduced motion | 5 | Built |
 | Health check, error logging, daily retention job, file clean-up on delete | 5 | Built |
-| Deployment, monitoring and backup guide ([deployment.md](deployment.md)) | 5 | Written; deploying needs your Supabase and Vercel accounts |
+| Deployment, monitoring and backup guide ([deployment.md](deployment.md)) | 5 | Written; deploying needs your Neon and Vercel accounts |
 
 ## Threat model (summary)
 
@@ -226,10 +243,10 @@ promote the new owner first, then demote the old one, in one transaction.
 | Malicious uploads | Private bucket, 2 MB limit, PNG/JPEG/WebP only (checked by file content, not name), uploads confined to the user's own folder; SVG rejected. |
 | XSS | React escapes output and nothing renders raw HTML. As a second layer, a Content Security Policy only lets scripts carrying the page's per-request nonce run, so an injected `<script>` is refused by the browser. |
 | Clickjacking, MIME sniffing | `frame-ancestors 'none'` and `X-Frame-Options: DENY`; `X-Content-Type-Options: nosniff`; HSTS; a strict Referrer-Policy so invite tokens in URLs never leak to other sites. |
-| A future table or function skipping the rules | `hardening.test.sql` fails if any table lacks RLS, signed-out visitors get any table or privileged function, a SECURITY DEFINER function lacks a fixed search_path, a bucket is public or unlimited, or a foreign key lacks an index. |
+| A future table or function skipping the rules | `hardening.test.sql` fails if any table lacks RLS, signed-out visitors get any table or privileged function, a SECURITY DEFINER function lacks a fixed search_path, the app's or sign-in library's login gets more access than it should, a foreign key lacks an index, or the database's choice lists drift from the TypeScript types. |
 | CSRF | Server Actions only accept POST from the same origin (Next.js checks the Origin header); auth cookies are SameSite=Lax. |
-| Leaked secrets | The app uses no secret or service-role key at all; `.env*` and database backups are git-ignored; only `NEXT_PUBLIC_` values reach the browser and they are safe by design. |
-| Abuse / cost | Supabase Auth's built-in rate limits on sign-in and emails; a 10-owned-workspace cap per user; 200 projects per workspace. Invitation rate limits come with invitations in Phase 3. |
+| Leaked secrets | Secrets live only in environment variables (`.env*` and database backups are git-ignored); `src/lib/server-env.ts` is server-only, and none of its names start with `NEXT_PUBLIC_`. The database owner login is used only for migrations and never deployed. |
+| Abuse / cost | Sign-in limits counted in the database: 30 attempts per address per 5 minutes, and 10 wrong passwords pause an account for 15 minutes; sign-up and reset requests are limited per address; Better Auth limits its own endpoints too. A 10-owned-workspace cap per user; 200 projects per workspace. |
 | Invite links leaked or forwarded | Only a SHA-256 hash of the token is stored; accepting requires being signed in with the invited, verified email; links expire after 7 days and are single use. |
 | Invitation spam | 20 invitations per workspace per hour, 100 open at once. |
 | Mention spoofing or pinging outsiders | Mentions are stored as user ids; the server drops mentions of anyone who can't see the project; names are shown from the live member list. |
@@ -262,25 +279,24 @@ latest 5,000 events as CSV at any time.
 
 ## Free-tier constraints
 
-Limits change; check the current Supabase and Vercel pricing pages before
+Limits change; check the current Neon and Vercel pricing pages before
 launch. At the time of writing, the free tiers roughly allow:
 
-- **Supabase:** 500 MB database, 1 GB file storage, 50,000 monthly active
-  users, a few emails per hour from the built-in mailer (fine for testing,
-  not for real users; production needs a custom SMTP provider), and projects
-  pause after a week of inactivity.
-- **Vercel Hobby:** for personal, non-commercial projects. A commercial
-  launch needs the Pro plan.
+- **Neon:** a small database (about 0.5–1 GB) that sleeps when idle; the
+  first request after a quiet spell is a little slower.
+- **Vercel Hobby:** personal, non-commercial projects; about 1 GB of Blob
+  file storage; one scheduled job run a day.
+- **Gmail sending:** a few hundred emails a day.
 
 Guardrails already in place: 2 MB avatar limit, old avatars deleted on
 replace, workspace cap per user, 5 MB per attachment and 100 MB of
 attachments per workspace.
 
-Deleting a project or workspace removes its attachment files from storage
-first, then the records, so no orphaned files use up the quota.
+Deleting a project or workspace removes its attachment records, then the
+stored files, so no orphaned files use up the quota.
 
 ## Likely paid needs later
 
-Custom SMTP for reliable auth and notification email, Vercel Pro for
-commercial use, Supabase Pro for daily backups with point-in-time recovery
-and no project pausing, and an error-reporting service beyond the free tier.
+An email service on your own domain for reliable delivery, Vercel Pro for
+commercial use, a paid Neon plan for longer backup history and no sleeping,
+and an error-reporting service beyond the free tier.

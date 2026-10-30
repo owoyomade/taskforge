@@ -5,7 +5,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(8);
+select plan(10);
 
 select is_empty(
   $$select relname from pg_class
@@ -36,14 +36,27 @@ select is_empty(
   'signed-out visitors can''t call any privileged function'
 );
 
+-- Accounts are reached only through privileged functions (and, for sign-in,
+-- the server's own connection), never by the request roles directly.
 select is_empty(
-  $$select id from storage.buckets where public$$,
-  'no storage bucket is public; files are only reachable through signed URLs'
+  $$select table_name || ': ' || privilege_type from information_schema.role_table_grants
+    where table_schema = 'auth' and grantee in ('anon', 'authenticated', 'taskforge_app', 'PUBLIC')$$,
+  'the account tables are private to the server'
 );
 
+-- The app's login role gets nothing directly; it must switch to a request
+-- role, so a query that skips that step fails instead of bypassing RLS.
 select is_empty(
-  $$select id from storage.buckets where file_size_limit is null or allowed_mime_types is null$$,
-  'every bucket limits file size and type'
+  $$select table_schema || '.' || table_name from information_schema.role_table_grants
+    where grantee = 'taskforge_app'$$,
+  'the app''s login role has no table access of its own'
+);
+
+-- The sign-in library's login handles passwords and sessions, and nothing else.
+select is_empty(
+  $$select table_schema || '.' || table_name from information_schema.role_table_grants
+    where grantee = 'taskforge_auth' and table_schema <> 'auth'$$,
+  'the sign-in login can''t reach any app data'
 );
 
 -- Keeps the Phase 5 performance fix from regressing: each foreign key needs
@@ -90,6 +103,18 @@ select is_empty(
     where (p.id in (select public.visible_project_ids_for(u.id)))
           is distinct from (public.project_access_for(u.id, p.id) is not null)$$,
   'the fast read rule and the per-project rule agree for everyone'
+);
+
+-- src/lib/project-constants.ts and permissions.ts spell these out in TypeScript.
+select is(
+  (select jsonb_object_agg(t.typname, (select jsonb_agg(e.enumlabel order by e.enumsortorder) from pg_enum e where e.enumtypid = t.oid))
+   from pg_type t where t.typnamespace = 'public'::regnamespace and t.typtype = 'e'),
+  '{"workspace_role": ["owner", "admin", "member", "viewer"],
+    "task_priority": ["none", "low", "medium", "high", "urgent"],
+    "project_status": ["planned", "active", "on_hold", "completed"],
+    "project_visibility": ["workspace", "private"],
+    "notification_type": ["assigned", "mentioned", "commented"]}'::jsonb,
+  'the database''s choice lists match the TypeScript types'
 );
 
 select * from finish();

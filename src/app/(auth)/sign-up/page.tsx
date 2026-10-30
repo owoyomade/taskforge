@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
+import { getCurrentUser } from "@/lib/auth";
 import { SignUpForm } from "../auth-forms";
 
 export const metadata: Metadata = { title: "Create an account" };
 
-export default function SignUpPage() {
+export default async function SignUpPage() {
+  if (await getCurrentUser()) {
+    redirect("/dashboard");
+  }
+
   return (
     <div className="grid gap-6">
       <div className="grid gap-1">

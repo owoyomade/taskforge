@@ -1,0 +1,33 @@
+# Local services for development and tests. Start with `npm run db:up`.
+# Nothing here is used in production; passwords are local-only defaults.
+name: taskforge
+
+services:
+  db:
+    build: ./db/docker
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: taskforge
+    ports:
+      # 5433, not 5432, so it never clashes with another Postgres on this machine.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      # Read-only, so `npm run test:db` can hand the test files to pg_prove.
+      - ./db/tests:/tests:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "taskforge"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Catches every email the app sends locally; open http://127.0.0.1:8025.
+  mail:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:1025:1025"
+
+volumes:
+  db-data:

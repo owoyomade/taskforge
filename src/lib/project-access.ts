@@ -1,7 +1,7 @@
 import "server-only";
 
 import { requireUser } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { withUser } from "@/lib/db";
 
 /** What non-form Server Actions (drag and drop, checkboxes) return to the browser. */
 export type ActionResult = { ok: true } | { ok: false; message: string };
@@ -17,8 +17,10 @@ type Level = keyof typeof LEVELS;
  * failure. The database enforces the same rule again through RLS.
  */
 export async function hasProjectAccess(projectId: string, needed: Level): Promise<boolean> {
-  await requireUser();
-  const supabase = await createClient();
-  const { data } = await supabase.rpc("project_access", { target_project: projectId });
-  return (data === "view" || data === "edit" || data === "manage") && LEVELS[data] >= LEVELS[needed];
+  const user = await requireUser();
+  const [row] = await withUser(user.id, (db) =>
+    db.query<{ access: string | null }>("select public.project_access($1) as access", [projectId]),
+  );
+  const access = row?.access;
+  return (access === "view" || access === "edit" || access === "manage") && LEVELS[access] >= LEVELS[needed];
 }

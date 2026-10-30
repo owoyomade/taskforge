@@ -42,7 +42,7 @@ security definer
 set search_path = ''
 as $$
   select lower(email) from auth.users
-  where id = (select auth.uid()) and email_confirmed_at is not null;
+  where id = (select auth.uid()) and email_verified;
 $$;
 
 /**
@@ -304,9 +304,9 @@ create index comment_mentions_user_id_idx on public.comment_mentions (user_id);
 -- ---------------------------------------------------------------------------
 -- Attachments
 --
--- Files live in the private "attachments" bucket at
+-- Files are stored outside the database at
 -- <workspace id>/<project id>/<task id>/<random id>-<file name>.
--- This table records each file; downloads use short-lived signed URLs.
+-- This table records each file; the app checks access before every download.
 -- ---------------------------------------------------------------------------
 
 create table public.attachments (
@@ -349,28 +349,12 @@ create trigger attachments_enforce_quota
   before insert on public.attachments
   for each row execute function public.enforce_attachment_quota();
 
-insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values (
-  'attachments',
-  'attachments',
-  false,
-  5 * 1024 * 1024,
-  -- No HTML, SVG or scripts: anything a browser might execute is refused.
-  array[
-    'image/png', 'image/jpeg', 'image/webp', 'image/gif',
-    'application/pdf', 'text/plain', 'text/csv',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'application/zip'
-  ]
-);
-
 /**
- * Access check for an attachment's storage path. Reads the project id from
- * the second folder, confirms the first folder is that project's workspace,
- * then applies the normal project access rules. Comparisons are done as text
- * so a malformed path simply fails rather than raising an error.
+ * Access check for an attachment's storage path, called by the app before
+ * any upload, download or delete. Reads the project id from the second
+ * folder, confirms the first folder is that project's workspace, then
+ * applies the normal project access rules. Comparisons are done as text so
+ * a malformed path simply fails rather than raising an error.
  */
 create function public.can_access_attachment_path(object_name text, needed text)
 returns boolean
@@ -381,8 +365,8 @@ set search_path = ''
 as $$
   select exists (
     select 1 from public.projects p
-    where p.id::text = (storage.foldername(object_name))[2]
-      and p.workspace_id::text = (storage.foldername(object_name))[1]
+    where p.id::text = split_part(object_name, '/', 2)
+      and p.workspace_id::text = split_part(object_name, '/', 1)
       and case needed
         when 'view' then public.project_access(p.id) is not null
         when 'edit' then public.project_access(p.id) in ('edit', 'manage')
@@ -391,25 +375,6 @@ as $$
       end
   );
 $$;
-
-create policy "attachments: read with project access"
-  on storage.objects for select to authenticated
-  using (bucket_id = 'attachments' and public.can_access_attachment_path(name, 'view'));
-
-create policy "attachments: editors upload"
-  on storage.objects for insert to authenticated
-  with check (bucket_id = 'attachments' and public.can_access_attachment_path(name, 'edit'));
-
--- Uploaders can delete their own files; project managers can delete any.
-create policy "attachments: uploader or manager deletes"
-  on storage.objects for delete to authenticated
-  using (
-    bucket_id = 'attachments'
-    and (
-      (owner_id = (select auth.uid())::text and public.can_access_attachment_path(name, 'edit'))
-      or public.can_access_attachment_path(name, 'manage')
-    )
-  );
 
 -- ---------------------------------------------------------------------------
 -- Privileges

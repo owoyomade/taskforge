@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { E2E_BASE_URL } from "../../playwright.config";
 import { signIn, signUpAndConfirm, uniqueEmail } from "./helpers";
 
-// Uses the seed data from supabase/seed.sql (run `npm run db:reset` first).
+// Uses the seed data from db/seed.sql (run `npm run db:reset` first).
 const PRICING_TASK = "/w/acme-studio/p/30000000-0000-4000-8000-000000000001?task=60000000-0000-4000-8000-000000000003";
 const ERIN_INVITE = "/invite/0123456789abcdef0123456789abcdef0123456789abcdef";
 

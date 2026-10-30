@@ -1,17 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { getCurrentUser } from "@/lib/auth";
 import { ResetPasswordForm } from "../auth-forms";
 
 export const metadata: Metadata = { title: "Choose a new password" };
 
-export default async function ResetPasswordPage() {
-  // The emailed reset link signs the user in before sending them here.
-  // Without that session there's nothing to reset.
-  const user = await getCurrentUser();
+/**
+ * Where the emailed reset link ends up. Better Auth checks the link first
+ * and sends people here with ?token=... (or ?error=... if it was expired or
+ * already used).
+ */
+export default async function ResetPasswordPage({ searchParams }: PageProps<"/reset-password">) {
+  const { token, error } = await searchParams;
 
-  if (!user) {
+  if (typeof token !== "string" || token.length === 0 || error) {
     return (
       <div className="grid gap-4">
         <h1 className="text-2xl font-semibold">This reset link has expired</h1>
@@ -27,9 +29,9 @@ export default async function ResetPasswordPage() {
     <div className="grid gap-6">
       <div className="grid gap-1">
         <h1 className="text-2xl font-semibold">Choose a new password</h1>
-        <p className="text-sm text-muted-foreground">For {user.email}</p>
+        <p className="text-sm text-muted-foreground">You&apos;ll sign in with it straight afterwards.</p>
       </div>
-      <ResetPasswordForm />
+      <ResetPasswordForm token={token} />
     </div>
   );
 }

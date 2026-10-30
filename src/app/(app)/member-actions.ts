@@ -7,10 +7,10 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { toUserMessage } from "@/lib/db-errors";
 import { publicEnv } from "@/lib/env";
+import { attemptAsCurrentUser } from "@/lib/db";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { can, grantableRoles, INVITABLE_ROLES } from "@/lib/permissions";
 import { NO_PERMISSION, type ActionResult } from "@/lib/project-access";
-import { createClient } from "@/lib/supabase/server";
 import { listMyWorkspaces } from "@/lib/workspaces";
 
 const idSchema = z.uuid();
@@ -42,15 +42,16 @@ export async function inviteMember(_previous: InviteState, formData: FormData): 
     return { status: "error", message: "Only owners and admins can invite people.", values };
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("create_invitation", {
-    target_workspace: workspace.id,
-    invite_email: parsed.data.email,
-    invite_role: parsed.data.role,
-  });
-  const created = data?.[0];
-  if (error || !created) {
-    return { status: "error", message: error ? toUserMessage(error, "inviteMember") : "Could not create the invitation.", values };
+  const result = await attemptAsCurrentUser((db) =>
+    db.query<{ invitation_id: string; token: string }>("select invitation_id, token from public.create_invitation($1, $2, $3)", [
+      workspace.id,
+      parsed.data.email,
+      parsed.data.role,
+    ]),
+  );
+  const created = result.ok ? result.value[0] : undefined;
+  if (!result.ok || !created) {
+    return { status: "error", message: result.ok ? "Could not create the invitation." : toUserMessage(result.error, "inviteMember"), values };
   }
 
   refreshWorkspace();
@@ -66,15 +67,14 @@ export async function revokeInvitation(workspaceId: string, invitationId: string
   const workspace = await myRoleIn(workspaceId);
   if (!workspace) return NO_PERMISSION;
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("workspace_invitations")
-    .update({ revoked_at: new Date().toISOString() })
-    .eq("id", invitationId)
-    .eq("workspace_id", workspace.id)
-    .select("id");
-  if (error) return { ok: false, message: toUserMessage(error, "revokeInvitation") };
-  if (data.length === 0) return NO_PERMISSION;
+  const result = await attemptAsCurrentUser((db) =>
+    db.query("update public.workspace_invitations set revoked_at = now() where id = $1 and workspace_id = $2 returning id", [
+      invitationId,
+      workspace.id,
+    ]),
+  );
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "revokeInvitation") };
+  if (result.value.length === 0) return NO_PERMISSION;
 
   refreshWorkspace();
   return { ok: true };
@@ -87,12 +87,13 @@ export async function respondToInvitation(
   await requireUser();
   if (!idSchema.safeParse(invitationId).success) return { ok: false, message: "That invitation doesn't exist." };
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("respond_to_invitation", { target_invitation: invitationId, accept });
-  if (error) return { ok: false, message: toUserMessage(error, "respondToInvitation") };
+  const result = await attemptAsCurrentUser((db) =>
+    db.query<{ slug: string | null }>("select public.respond_to_invitation($1, $2) as slug", [invitationId, accept]),
+  );
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "respondToInvitation") };
 
   revalidatePath("/", "layout");
-  return { ok: true, slug: data ?? undefined };
+  return { ok: true, slug: result.value[0]?.slug ?? undefined };
 }
 
 export async function changeMemberRole(workspaceId: string, userId: string, role: string): Promise<ActionResult> {
@@ -103,16 +104,16 @@ export async function changeMemberRole(workspaceId: string, userId: string, role
   if (!workspace || userId === user.id) return NO_PERMISSION;
   if (!grantableRoles(workspace.role).includes(parsedRole.data)) return NO_PERMISSION;
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("workspace_members")
-    .update({ role: parsedRole.data })
-    .eq("workspace_id", workspace.id)
-    .eq("user_id", userId)
-    .select("user_id");
+  const result = await attemptAsCurrentUser((db) =>
+    db.query("update public.workspace_members set role = $3 where workspace_id = $1 and user_id = $2 returning user_id", [
+      workspace.id,
+      userId,
+      parsedRole.data,
+    ]),
+  );
   // Rules like "only owners change owners" come back as TF001 with a readable message.
-  if (error) return { ok: false, message: toUserMessage(error, "changeMemberRole") };
-  if (data.length === 0) return NO_PERMISSION;
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "changeMemberRole") };
+  if (result.value.length === 0) return NO_PERMISSION;
 
   refreshWorkspace();
   return { ok: true };
@@ -125,15 +126,11 @@ export async function removeMember(workspaceId: string, userId: string): Promise
   // owners) is decided by the database trigger, which explains any refusal.
   if (!workspace || userId === user.id || !can(workspace.role, "manageMembers")) return NO_PERMISSION;
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("workspace_members")
-    .delete()
-    .eq("workspace_id", workspace.id)
-    .eq("user_id", userId)
-    .select("user_id");
-  if (error) return { ok: false, message: toUserMessage(error, "removeMember") };
-  if (data.length === 0) return NO_PERMISSION;
+  const result = await attemptAsCurrentUser((db) =>
+    db.query("delete from public.workspace_members where workspace_id = $1 and user_id = $2 returning user_id", [workspace.id, userId]),
+  );
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "removeMember") };
+  if (result.value.length === 0) return NO_PERMISSION;
 
   refreshWorkspace();
   return { ok: true };
@@ -143,14 +140,11 @@ export async function leaveWorkspace(workspaceId: string): Promise<ActionResult>
   const [user, workspace] = await Promise.all([requireUser(), myRoleIn(workspaceId)]);
   if (!workspace) return NO_PERMISSION;
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("workspace_members")
-    .delete()
-    .eq("workspace_id", workspace.id)
-    .eq("user_id", user.id);
+  const result = await attemptAsCurrentUser((db) =>
+    db.query("delete from public.workspace_members where workspace_id = $1 and user_id = $2", [workspace.id, user.id]),
+  );
   // The last owner gets the database's "make someone else an owner first" message.
-  if (error) return { ok: false, message: toUserMessage(error, "leaveWorkspace") };
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "leaveWorkspace") };
 
   revalidatePath("/", "layout");
   redirect("/dashboard");
@@ -174,9 +168,8 @@ export async function transferOwnership(_previous: FormState, formData: FormData
     };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("transfer_ownership", { target_workspace: workspace.id, new_owner: newOwnerId });
-  if (error) return { status: "error", message: toUserMessage(error, "transferOwnership") };
+  const result = await attemptAsCurrentUser((db) => db.query("select public.transfer_ownership($1, $2)", [workspace.id, newOwnerId]));
+  if (!result.ok) return { status: "error", message: toUserMessage(result.error, "transferOwnership") };
 
   refreshWorkspace();
   return { status: "success", message: "Ownership transferred. You're now an admin." };

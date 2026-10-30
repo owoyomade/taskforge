@@ -11,23 +11,14 @@
  * inline style attributes (positions, transforms), which nonces can't cover.
  * Injected CSS is far less dangerous than injected script.
  */
-export function contentSecurityPolicy({
-  nonce,
-  isDev,
-  supabaseUrl,
-}: {
-  nonce: string;
-  isDev: boolean;
-  supabaseUrl: string;
-}): string {
-  const supabaseOrigin = new URL(supabaseUrl).origin;
+export function contentSecurityPolicy({ nonce, isDev }: { nonce: string; isDev: boolean }): string {
   const directives = [
     "default-src 'self'",
     // React uses eval() in development only, to rebuild server error stacks.
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
     "style-src 'self' 'unsafe-inline'",
-    // Avatars are short-lived signed URLs served by Supabase Storage.
-    `img-src 'self' blob: data: ${supabaseOrigin}`,
+    // Profile photos and attachments are served by this app's own routes.
+    "img-src 'self' blob: data:",
     "font-src 'self'",
     "connect-src 'self'",
     "object-src 'none'",

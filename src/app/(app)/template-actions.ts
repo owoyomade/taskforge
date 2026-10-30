@@ -4,12 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
+import { requireUser } from "@/lib/auth";
+import { asCurrentUser, attemptAsCurrentUser } from "@/lib/db";
 import { toUserMessage } from "@/lib/db-errors";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { hasProjectAccess, NO_PERMISSION, type ActionResult } from "@/lib/project-access";
-import { asColor, COLORS } from "@/lib/project-constants";
+import { asColor, COLORS, type TaskPriority } from "@/lib/project-constants";
 import { getProjectForUser, listColumns, listPhases } from "@/lib/projects";
-import { createClient } from "@/lib/supabase/server";
 import { findTemplate } from "@/lib/templates/library";
 import { templateDefinitionSchema, type TemplateDefinition } from "@/lib/templates/schema";
 import { listMyWorkspaces } from "@/lib/workspaces";
@@ -32,13 +33,9 @@ async function loadDefinition(workspaceId: string, templateRef: string): Promise
     return findTemplate(id)?.definition ?? null;
   }
   if (kind === "saved" && z.uuid().safeParse(id).success) {
-    const supabase = await createClient();
-    const { data } = await supabase
-      .from("project_templates")
-      .select("definition")
-      .eq("id", id)
-      .eq("workspace_id", workspaceId)
-      .maybeSingle();
+    const [data] = await asCurrentUser((db) =>
+      db.query<{ definition: unknown }>("select definition from public.project_templates where id = $1 and workspace_id = $2", [id, workspaceId]),
+    );
     // Saved definitions are re-validated in case they were edited outside the app.
     const parsed = templateDefinitionSchema.safeParse(data?.definition);
     return parsed.success ? parsed.data : null;
@@ -67,20 +64,19 @@ export async function createProjectFromTemplate(_previous: FormState, formData: 
     return { status: "error", message: "That template couldn't be found. Pick another one.", values };
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("create_project_from_template", {
-    target_workspace: workspace.id,
-    project_name: parsed.data.name,
-    project_description: "",
-    project_visibility: parsed.data.visibility,
-    project_color: parsed.data.color,
-    finish_date: parsed.data.finishDate ?? undefined,
-    template: definition,
-  });
-  if (error) return { status: "error", message: toUserMessage(error, "createProjectFromTemplate"), values };
+  const result = await attemptAsCurrentUser((db) =>
+    db.query<{ id: string }>(
+      `select (public.create_project_from_template(
+         target_workspace => $1, project_name => $2, project_description => '', project_visibility => $3,
+         project_color => $4, finish_date => $5, template => $6::jsonb
+       )).id`,
+      [workspace.id, parsed.data.name, parsed.data.visibility, parsed.data.color, parsed.data.finishDate ?? null, JSON.stringify(definition)],
+    ),
+  );
+  if (!result.ok) return { status: "error", message: toUserMessage(result.error, "createProjectFromTemplate"), values };
 
   revalidatePath("/w/[slug]", "layout");
-  redirect(`/w/${workspace.slug}/p/${data.id}`);
+  redirect(`/w/${workspace.slug}/p/${result.value[0].id}`);
 }
 
 const saveTemplateSchema = z.object({
@@ -104,38 +100,47 @@ export async function saveProjectAsTemplate(_previous: FormState, formData: Form
     return { status: "error", message: "You don't have permission to do that.", values };
   }
 
-  const supabase = await createClient();
-  const { data: projectRow } = await supabase.from("projects").select("workspace_id").eq("id", projectId).single();
+  const [projectRow] = await asCurrentUser((db) =>
+    db.query<{ workspace_id: string }>("select workspace_id from public.projects where id = $1", [projectId]),
+  );
   if (!projectRow) return { status: "error", message: "That project no longer exists.", values };
 
   const project = await getProjectForUser(projectRow.workspace_id, projectId);
-  const [columns, phasesByProject, tasks, labelLinks, labels, checklistItems] = await Promise.all([
+  const [columns, phasesByProject, rows] = await Promise.all([
     listColumns(project.id),
     listPhases(project.workspaceId, project.id),
-    supabase
-      .from("tasks")
-      .select("id, title, description, priority, due_date, column_id, parent_task_id, position")
-      .eq("project_id", project.id)
-      .is("archived_at", null)
-      .is("deleted_at", null)
-      .order("position")
-      .limit(400),
-    supabase.from("task_labels").select("task_id, label_id").eq("project_id", project.id),
-    supabase.from("labels").select("id, name, color").eq("workspace_id", project.workspaceId),
-    supabase.from("checklist_items").select("task_id, content, position").eq("project_id", project.id).order("position"),
+    asCurrentUser(async (db) => ({
+      tasks: await db.query<{
+        id: string;
+        title: string;
+        description: string;
+        priority: TaskPriority;
+        due_date: string | null;
+        column_id: string | null;
+        parent_task_id: string | null;
+      }>(
+        `select id, title, description, priority, due_date, column_id, parent_task_id from public.tasks
+         where project_id = $1 and archived_at is null and deleted_at is null order by position limit 400`,
+        [project.id],
+      ),
+      labelLinks: await db.query<{ task_id: string; label_id: string }>("select task_id, label_id from public.task_labels where project_id = $1", [project.id]),
+      labels: await db.query<{ id: string; name: string; color: string }>("select id, name, color from public.labels where workspace_id = $1", [project.workspaceId]),
+      checklistItems: await db.query<{ task_id: string; content: string }>(
+        "select task_id, content from public.checklist_items where project_id = $1 order by position",
+        [project.id],
+      ),
+    })),
   ]);
-  if (tasks.error || labelLinks.error || labels.error || checklistItems.error) {
-    return { status: "error", message: "Could not read the project. Please try again.", values };
-  }
+  const { tasks, labelLinks, labels, checklistItems } = rows;
 
   const phases = phasesByProject.get(project.id) ?? [];
   const anchor = project.targetDate;
   const offsetFrom = (date: string | null) =>
     anchor && date ? Math.min(0, Math.round((Date.parse(date) - Date.parse(anchor)) / 86_400_000)) : undefined;
   const phaseOfTask = new Map(phases.flatMap((phase, index) => phase.taskIds.map((id) => [id, index] as const)));
-  const labelById = new Map(labels.data.map((label) => [label.id, label]));
-  const topLevel = tasks.data.filter((task) => !task.parent_task_id);
-  const usedLabelIds = new Set(labelLinks.data.map((link) => link.label_id));
+  const labelById = new Map(labels.map((label) => [label.id, label]));
+  const topLevel = tasks.filter((task) => !task.parent_task_id);
+  const usedLabelIds = new Set(labelLinks.map((link) => link.label_id));
 
   const definition: TemplateDefinition = {
     columns: columns.map((column) => ({ name: column.name, isDone: column.isDone })),
@@ -151,9 +156,9 @@ export async function saveProjectAsTemplate(_previous: FormState, formData: Form
       column: Math.max(0, columns.findIndex((column) => column.id === task.column_id)),
       priority: task.priority,
       dueOffsetDays: offsetFrom(task.due_date),
-      labels: labelLinks.data.filter((link) => link.task_id === task.id).flatMap((link) => labelById.get(link.label_id)?.name ?? []),
-      checklist: checklistItems.data.filter((item) => item.task_id === task.id).map((item) => item.content).slice(0, 30),
-      subtasks: tasks.data.filter((sub) => sub.parent_task_id === task.id).map((sub) => sub.title).slice(0, 30),
+      labels: labelLinks.filter((link) => link.task_id === task.id).flatMap((link) => labelById.get(link.label_id)?.name ?? []),
+      checklist: checklistItems.filter((item) => item.task_id === task.id).map((item) => item.content).slice(0, 30),
+      subtasks: tasks.filter((sub) => sub.parent_task_id === task.id).map((sub) => sub.title).slice(0, 30),
     })),
   };
 
@@ -162,15 +167,17 @@ export async function saveProjectAsTemplate(_previous: FormState, formData: Form
     return { status: "error", message: "This project is too large to save as a template (150 tasks at most).", values };
   }
 
-  const { data: claims } = await supabase.auth.getClaims();
-  const { error } = await supabase.from("project_templates").insert({
-    workspace_id: project.workspaceId,
-    name: parsed.data.name,
-    description: parsed.data.description,
-    definition: checked.data,
-    created_by: claims?.claims.sub ?? "",
-  });
-  if (error) return { status: "error", message: toUserMessage(error, "saveProjectAsTemplate"), values };
+  const user = await requireUser();
+  const result = await attemptAsCurrentUser((db) =>
+    db.query("insert into public.project_templates (workspace_id, name, description, definition, created_by) values ($1, $2, $3, $4::jsonb, $5)", [
+      project.workspaceId,
+      parsed.data.name,
+      parsed.data.description,
+      JSON.stringify(checked.data),
+      user.id,
+    ]),
+  );
+  if (!result.ok) return { status: "error", message: toUserMessage(result.error, "saveProjectAsTemplate"), values };
 
   revalidatePath("/w/[slug]", "layout");
   return { status: "success", message: "Saved. It now appears under \"Your team's templates\" when creating a project." };
@@ -178,15 +185,11 @@ export async function saveProjectAsTemplate(_previous: FormState, formData: Form
 
 export async function deleteSavedTemplate(workspaceId: string, templateId: string): Promise<ActionResult> {
   if (!z.uuid().safeParse(templateId).success) return NO_PERMISSION;
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("project_templates")
-    .delete()
-    .eq("id", templateId)
-    .eq("workspace_id", workspaceId)
-    .select("id");
-  if (error) return { ok: false, message: toUserMessage(error, "deleteSavedTemplate") };
-  if (data.length === 0) return { ok: false, message: "Only the person who saved a template, or an admin, can delete it." };
+  const result = await attemptAsCurrentUser((db) =>
+    db.query("delete from public.project_templates where id = $1 and workspace_id = $2 returning id", [templateId, workspaceId]),
+  );
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "deleteSavedTemplate") };
+  if (result.value.length === 0) return { ok: false, message: "Only the person who saved a template, or an admin, can delete it." };
 
   revalidatePath("/w/[slug]", "layout");
   return { ok: true };

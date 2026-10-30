@@ -107,28 +107,28 @@ select is((select role::text from public.workspace_members
   where workspace_id = 'aaaaaaaa-0000-4000-8000-00000000000a' and user_id = '55555555-5555-4555-8555-555555555555'),
   'viewer', 'the admin role change was saved');
 
--- Avatar storage ---------------------------------------------------------------
+-- Profile photos ---------------------------------------------------------------
+-- Files live outside the database; the app asks can_view_avatar() before
+-- serving one, and only lets people upload into their own folder.
 select set_config('request.jwt.claims', '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}', true);
 set local role authenticated;
 
-select lives_ok($$insert into storage.objects (bucket_id, name)
-  values ('avatars', '11111111-1111-4111-8111-111111111111/avatar.png')$$,
-  'users can upload into their own avatar folder');
-select throws_ok($$insert into storage.objects (bucket_id, name)
-  values ('avatars', '22222222-2222-4222-8222-222222222222/avatar.png')$$,
-  '42501', null, 'users cannot upload into someone else''s avatar folder');
+select ok(public.can_view_avatar('11111111-1111-4111-8111-111111111111/avatar.png'),
+  'users can see their own photo');
+select ok(not public.can_view_avatar('22222222-2222-4222-8222-222222222222/avatar.png'),
+  'users can''t see a stranger''s photo');
 
 reset role;
 select set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-8444-444444444444","role":"authenticated"}', true);
 set local role authenticated;
-select isnt_empty($$select 1 from storage.objects where name = '11111111-1111-4111-8111-111111111111/avatar.png'$$,
-  'teammates can see each other''s avatars');
+select ok(public.can_view_avatar('11111111-1111-4111-8111-111111111111/avatar.png'),
+  'teammates can see each other''s photos');
 
 reset role;
 select set_config('request.jwt.claims', '{"sub":"22222222-2222-4222-8222-222222222222","role":"authenticated"}', true);
 set local role authenticated;
-select is_empty($$select 1 from storage.objects where name = '11111111-1111-4111-8111-111111111111/avatar.png'$$,
-  'people outside the workspace cannot see the avatar');
+select ok(not public.can_view_avatar('11111111-1111-4111-8111-111111111111/avatar.png'),
+  'people outside the workspace cannot see the photo');
 
 -- owner2: creating a workspace through the RPC ---------------------------------
 select lives_ok($$select public.create_workspace('Second Space', 'second-space')$$,

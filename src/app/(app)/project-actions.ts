@@ -4,12 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
-import { removeAttachmentFiles } from "@/lib/attachment-files";
+import { attachmentPathsIn, removeStoredAttachments } from "@/lib/attachment-files";
+import { asCurrentUser, attemptAsCurrentUser } from "@/lib/db";
 import { toUserMessage } from "@/lib/db-errors";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { evenPositions, positionForIndex } from "@/lib/ordering";
 import { hasProjectAccess, NO_PERMISSION, type ActionResult } from "@/lib/project-access";
-import { createClient } from "@/lib/supabase/server";
 import { columnNameSchema, labelSchema, projectUpdateSchema } from "@/lib/validation";
 import { listMyWorkspaces } from "@/lib/workspaces";
 
@@ -50,29 +50,32 @@ export async function updateProject(_previous: FormState, formData: FormData): P
     return { status: "error", message: "Only the project owner or a workspace admin can change these settings.", values };
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("projects")
-    .update({
-      name: parsed.data.name,
-      description: parsed.data.description,
-      visibility: parsed.data.visibility,
-      color: parsed.data.color,
-      status: parsed.data.status,
-      start_date: parsed.data.startDate,
-      target_date: parsed.data.targetDate,
-      owner_id: parsed.data.ownerId,
-    })
-    .eq("id", projectId)
-    .select("id");
+  const result = await attemptAsCurrentUser((db) =>
+    db.query<{ id: string }>(
+      `update public.projects set name = $2, description = $3, visibility = $4, color = $5, status = $6,
+         start_date = $7, target_date = $8, owner_id = $9
+       where id = $1 returning id`,
+      [
+        projectId,
+        parsed.data.name,
+        parsed.data.description,
+        parsed.data.visibility,
+        parsed.data.color,
+        parsed.data.status,
+        parsed.data.startDate,
+        parsed.data.targetDate,
+        parsed.data.ownerId,
+      ],
+    ),
+  );
 
-  if (error) {
+  if (!result.ok) {
     // 23503 here means the chosen owner isn't (or is no longer) a workspace member.
     const message =
-      error.code === "23503" ? "The owner must be a member of this workspace." : toUserMessage(error, "updateProject");
+      result.error.code === "23503" ? "The owner must be a member of this workspace." : toUserMessage(result.error, "updateProject");
     return { status: "error", message, values };
   }
-  if (data.length === 0) {
+  if (result.value.length === 0) {
     return { status: "error", message: "You don't have permission to do that.", values };
   }
 
@@ -85,14 +88,14 @@ export async function setProjectArchived(projectId: string, archived: boolean): 
     return NO_PERMISSION;
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("projects")
-    .update({ archived_at: archived ? new Date().toISOString() : null })
-    .eq("id", projectId)
-    .select("id");
-  if (error) return { ok: false, message: toUserMessage(error, "setProjectArchived") };
-  if (data.length === 0) return NO_PERMISSION;
+  const result = await attemptAsCurrentUser((db) =>
+    db.query<{ id: string }>(
+      "update public.projects set archived_at = case when $2 then now() else null end where id = $1 returning id",
+      [projectId, archived],
+    ),
+  );
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "setProjectArchived") };
+  if (result.value.length === 0) return NO_PERMISSION;
 
   refreshWorkspace();
   return { ok: true };
@@ -104,8 +107,9 @@ export async function deleteProject(_previous: FormState, formData: FormData): P
     return { status: "error", message: "You don't have permission to do that." };
   }
 
-  const supabase = await createClient();
-  const { data: project } = await supabase.from("projects").select("name, workspace_id").eq("id", projectId).single();
+  const [project] = await asCurrentUser((db) =>
+    db.query<{ name: string; workspace_id: string }>("select name, workspace_id from public.projects where id = $1", [projectId]),
+  );
   if (!project) {
     return { status: "error", message: "That project no longer exists." };
   }
@@ -117,13 +121,14 @@ export async function deleteProject(_previous: FormState, formData: FormData): P
     };
   }
 
-  if (!(await removeAttachmentFiles({ projectId }))) {
-    return { status: "error", message: "Some attached files couldn't be deleted, so the project was kept. Try again." };
-  }
-
-  const { data, error } = await supabase.from("projects").delete().eq("id", projectId).select("id");
-  if (error) return { status: "error", message: toUserMessage(error, "deleteProject") };
-  if (data.length === 0) return { status: "error", message: "You don't have permission to do that." };
+  // Note the files first: deleting the project removes their records.
+  const filePaths = await attachmentPathsIn({ projectId });
+  const result = await attemptAsCurrentUser((db) =>
+    db.query<{ id: string }>("delete from public.projects where id = $1 returning id", [projectId]),
+  );
+  if (!result.ok) return { status: "error", message: toUserMessage(result.error, "deleteProject") };
+  if (result.value.length === 0) return { status: "error", message: "You don't have permission to do that." };
+  await removeStoredAttachments(filePaths);
 
   const workspace = (await listMyWorkspaces()).find((candidate) => candidate.id === project.workspace_id);
   refreshWorkspace();
@@ -134,19 +139,20 @@ export async function setProjectMember(projectId: string, userId: string, isMemb
   if (!idSchema.safeParse(projectId).success || !idSchema.safeParse(userId).success) return NO_PERMISSION;
   if (!(await hasProjectAccess(projectId, "manage"))) return NO_PERMISSION;
 
-  const supabase = await createClient();
-  const { data: project } = await supabase.from("projects").select("workspace_id").eq("id", projectId).single();
-  if (!project) return NO_PERMISSION;
-
-  const { error } = isMember
-    ? await supabase
-        .from("project_members")
-        .upsert(
-          { project_id: projectId, workspace_id: project.workspace_id, user_id: userId },
-          { onConflict: "project_id,user_id", ignoreDuplicates: true },
+  const result = await attemptAsCurrentUser(async (db) => {
+    const [project] = await db.query<{ workspace_id: string }>("select workspace_id from public.projects where id = $1", [projectId]);
+    if (!project) return false;
+    await (isMember
+      ? db.query(
+          `insert into public.project_members (project_id, workspace_id, user_id) values ($1, $2, $3)
+           on conflict (project_id, user_id) do nothing`,
+          [projectId, project.workspace_id, userId],
         )
-    : await supabase.from("project_members").delete().eq("project_id", projectId).eq("user_id", userId);
-  if (error) return { ok: false, message: toUserMessage(error, "setProjectMember") };
+      : db.query("delete from public.project_members where project_id = $1 and user_id = $2", [projectId, userId]));
+    return true;
+  });
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "setProjectMember") };
+  if (!result.value) return NO_PERMISSION;
 
   refreshWorkspace();
   return { ok: true };
@@ -161,26 +167,23 @@ export async function createColumn(projectId: string, name: string): Promise<Act
   if (!parsedName.success) return { ok: false, message: parsedName.error.issues[0]?.message ?? "Enter a name." };
   if (!idSchema.safeParse(projectId).success || !(await hasProjectAccess(projectId, "edit"))) return NO_PERMISSION;
 
-  const supabase = await createClient();
-  const [{ data: project }, { data: last }] = await Promise.all([
-    supabase.from("projects").select("workspace_id").eq("id", projectId).single(),
-    supabase
-      .from("board_columns")
-      .select("position")
-      .eq("project_id", projectId)
-      .order("position", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
-  if (!project) return NO_PERMISSION;
-
-  const { error } = await supabase.from("board_columns").insert({
-    workspace_id: project.workspace_id,
-    project_id: projectId,
-    name: parsedName.data,
-    position: (last?.position ?? 0) + 1000,
+  const result = await attemptAsCurrentUser(async (db) => {
+    const [project] = await db.query<{ workspace_id: string }>("select workspace_id from public.projects where id = $1", [projectId]);
+    if (!project) return false;
+    const [last] = await db.query<{ position: number }>(
+      "select position from public.board_columns where project_id = $1 order by position desc limit 1",
+      [projectId],
+    );
+    await db.query("insert into public.board_columns (workspace_id, project_id, name, position) values ($1, $2, $3, $4)", [
+      project.workspace_id,
+      projectId,
+      parsedName.data,
+      (last?.position ?? 0) + 1000,
+    ]);
+    return true;
   });
-  if (error) return { ok: false, message: toUserMessage(error, "createColumn") };
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "createColumn") };
+  if (!result.value) return NO_PERMISSION;
 
   refreshWorkspace();
   return { ok: true };
@@ -194,104 +197,90 @@ export async function updateColumn(
   if (!parsedName.success) return { ok: false, message: parsedName.error.issues[0]?.message ?? "Enter a name." };
   if (!idSchema.safeParse(columnId).success) return NO_PERMISSION;
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("board_columns")
-    .update({ name: parsedName.data, is_done: changes.isDone })
-    .eq("id", columnId)
-    .select("id");
-  if (error) return { ok: false, message: toUserMessage(error, "updateColumn") };
-  if (data.length === 0) return NO_PERMISSION;
+  const result = await attemptAsCurrentUser((db) =>
+    db.query<{ id: string }>("update public.board_columns set name = $2, is_done = $3 where id = $1 returning id", [
+      columnId,
+      parsedName.data,
+      changes.isDone,
+    ]),
+  );
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "updateColumn") };
+  if (result.value.length === 0) return NO_PERMISSION;
 
   refreshWorkspace();
   return { ok: true };
 }
 
-/** Moves a column to `targetIndex` among its project's columns. */
+/** Moves a column to `targetIndex` among its project's columns, renumbering them all if they've got crowded. */
 export async function moveColumn(columnId: string, targetIndex: number): Promise<ActionResult> {
   if (!idSchema.safeParse(columnId).success || !Number.isInteger(targetIndex)) return NO_PERMISSION;
 
-  const supabase = await createClient();
-  const { data: column } = await supabase.from("board_columns").select("project_id").eq("id", columnId).maybeSingle();
-  if (!column) return { ok: false, message: "That column no longer exists." };
+  const result = await attemptAsCurrentUser(async (db) => {
+    const [column] = await db.query<{ project_id: string }>("select project_id from public.board_columns where id = $1", [columnId]);
+    if (!column) return "missing" as const;
+    const columns = await db.query<{ id: string; position: number }>(
+      "select id, position from public.board_columns where project_id = $1 order by position",
+      [column.project_id],
+    );
 
-  const { data: columns, error: listError } = await supabase
-    .from("board_columns")
-    .select("id, position")
-    .eq("project_id", column.project_id)
-    .order("position");
-  if (listError) return { ok: false, message: toUserMessage(listError, "moveColumn") };
+    const { position, rebalance } = positionForIndex(columns, columnId, targetIndex);
+    if (!rebalance) {
+      const updated = await db.query("update public.board_columns set position = $2 where id = $1 returning id", [columnId, position]);
+      return updated.length === 0 ? ("denied" as const) : ("moved" as const);
+    }
 
-  const { position, rebalance } = positionForIndex(columns, columnId, targetIndex);
-  if (rebalance) {
-    await rebalanceColumns(column.project_id, columns.map((item) => item.id), columnId, targetIndex);
-  } else {
-    const { data, error } = await supabase.from("board_columns").update({ position }).eq("id", columnId).select("id");
-    if (error) return { ok: false, message: toUserMessage(error, "moveColumn") };
-    if (data.length === 0) return NO_PERMISSION;
-  }
+    const orderedIds = columns.map((item) => item.id).filter((id) => id !== columnId);
+    orderedIds.splice(targetIndex, 0, columnId);
+    const positions = evenPositions(orderedIds.length);
+    for (const [index, id] of orderedIds.entries()) {
+      await db.query("update public.board_columns set position = $2 where id = $1 and project_id = $3", [id, positions[index], column.project_id]);
+    }
+    return "moved" as const;
+  });
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "moveColumn") };
+  if (result.value === "missing") return { ok: false, message: "That column no longer exists." };
+  if (result.value === "denied") return NO_PERMISSION;
 
   refreshWorkspace();
   return { ok: true };
-}
-
-// Renumbers every column evenly, with the moved one at its new index.
-async function rebalanceColumns(projectId: string, orderedIds: string[], movedId: string, targetIndex: number) {
-  const supabase = await createClient();
-  const ids = orderedIds.filter((id) => id !== movedId);
-  ids.splice(targetIndex, 0, movedId);
-  const positions = evenPositions(ids.length);
-  await Promise.all(
-    ids.map((id, index) =>
-      supabase.from("board_columns").update({ position: positions[index] }).eq("id", id).eq("project_id", projectId),
-    ),
-  );
 }
 
 /**
  * Deletes a column after moving all of its tasks (including archived and
- * deleted ones, which still reference it) into another column.
+ * deleted ones, which still reference it) into another column. One
+ * transaction, so tasks are never left pointing at a deleted column.
  */
 export async function deleteColumn(columnId: string, destinationColumnId: string): Promise<ActionResult> {
   if (!idSchema.safeParse(columnId).success || !idSchema.safeParse(destinationColumnId).success) return NO_PERMISSION;
   if (columnId === destinationColumnId) return { ok: false, message: "Choose a different column for the tasks." };
 
-  const supabase = await createClient();
-  const { data: columns } = await supabase
-    .from("board_columns")
-    .select("id, project_id")
-    .in("id", [columnId, destinationColumnId]);
-  const source = columns?.find((column) => column.id === columnId);
-  const destination = columns?.find((column) => column.id === destinationColumnId);
+  const columns = await asCurrentUser((db) =>
+    db.query<{ id: string; project_id: string }>("select id, project_id from public.board_columns where id = any($1::uuid[])", [
+      [columnId, destinationColumnId],
+    ]),
+  );
+  const source = columns.find((column) => column.id === columnId);
+  const destination = columns.find((column) => column.id === destinationColumnId);
   if (!source || !destination || source.project_id !== destination.project_id) {
     return { ok: false, message: "That column no longer exists." };
   }
   if (!(await hasProjectAccess(source.project_id, "edit"))) return NO_PERMISSION;
 
-  // Moved tasks go to the end of the destination column, keeping their order.
-  const [{ data: moving }, { data: last }] = await Promise.all([
-    supabase.from("tasks").select("id").eq("column_id", columnId).order("position"),
-    supabase
-      .from("tasks")
-      .select("position")
-      .eq("column_id", destinationColumnId)
-      .order("position", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
-
-  const start = last?.position ?? 0;
-  for (const [index, task] of (moving ?? []).entries()) {
-    const { error } = await supabase
-      .from("tasks")
-      .update({ column_id: destinationColumnId, position: start + (index + 1) * 1000 })
-      .eq("id", task.id);
-    if (error) return { ok: false, message: toUserMessage(error, "deleteColumn") };
-  }
-
-  const { data, error } = await supabase.from("board_columns").delete().eq("id", columnId).select("id");
-  if (error) return { ok: false, message: toUserMessage(error, "deleteColumn") };
-  if (data.length === 0) return NO_PERMISSION;
+  const result = await attemptAsCurrentUser(async (db) => {
+    // Moved tasks go to the end of the destination column, keeping their order.
+    const moving = await db.query<{ id: string }>("select id from public.tasks where column_id = $1 order by position", [columnId]);
+    const [last] = await db.query<{ position: number }>(
+      "select position from public.tasks where column_id = $1 order by position desc limit 1",
+      [destinationColumnId],
+    );
+    const start = last?.position ?? 0;
+    for (const [index, task] of moving.entries()) {
+      await db.query("update public.tasks set column_id = $2, position = $3 where id = $1", [task.id, destinationColumnId, start + (index + 1) * 1000]);
+    }
+    return db.query<{ id: string }>("delete from public.board_columns where id = $1 returning id", [columnId]);
+  });
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "deleteColumn") };
+  if (result.value.length === 0) return NO_PERMISSION;
 
   refreshWorkspace();
   return { ok: true };
@@ -311,12 +300,11 @@ export async function createLabel(_previous: FormState, formData: FormData): Pro
     return { status: "error", message: "You don't have permission to manage labels.", values };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("labels")
-    .insert({ workspace_id: workspace.id, name: parsed.data.name, color: parsed.data.color });
-  if (error) {
-    const message = error.code === "23505" ? "A label with that name already exists." : toUserMessage(error, "createLabel");
+  const result = await attemptAsCurrentUser((db) =>
+    db.query("insert into public.labels (workspace_id, name, color) values ($1, $2, $3)", [workspace.id, parsed.data.name, parsed.data.color]),
+  );
+  if (!result.ok) {
+    const message = result.error.code === "23505" ? "A label with that name already exists." : toUserMessage(result.error, "createLabel");
     return { status: "error", message, values };
   }
 
@@ -328,17 +316,12 @@ export async function deleteLabel(workspaceId: string, labelId: string): Promise
   const workspace = (await listMyWorkspaces()).find((candidate) => candidate.id === workspaceId);
   if (!workspace || !idSchema.safeParse(labelId).success || workspace.role === "viewer") return NO_PERMISSION;
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("labels")
-    .delete()
-    .eq("id", labelId)
-    .eq("workspace_id", workspace.id)
-    .select("id");
-  if (error) return { ok: false, message: toUserMessage(error, "deleteLabel") };
-  if (data.length === 0) return NO_PERMISSION;
+  const result = await attemptAsCurrentUser((db) =>
+    db.query<{ id: string }>("delete from public.labels where id = $1 and workspace_id = $2 returning id", [labelId, workspace.id]),
+  );
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "deleteLabel") };
+  if (result.value.length === 0) return NO_PERMISSION;
 
   refreshWorkspace();
   return { ok: true };
 }
-

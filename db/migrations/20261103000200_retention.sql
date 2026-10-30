@@ -18,7 +18,8 @@ create index audit_events_created_at_idx on public.audit_events (created_at);
 /**
  * Deletes records past their retention period and returns how many of each
  * were removed. Runs as the table owner because nobody, not even admins, can
- * delete history through the API.
+ * delete history through the app. A daily scheduled job on the host (Vercel
+ * Cron) calls it through a server-only connection.
  */
 create function public.purge_expired_records()
 returns jsonb
@@ -52,15 +53,5 @@ begin
 end;
 $$;
 
--- Only the scheduler (running as the database owner) may call it.
+-- Only the database owner (the scheduled job) may call it.
 revoke execute on function public.purge_expired_records() from public, anon, authenticated;
-
--- pg_cron is Supabase's built-in job scheduler. 03:17 UTC daily: a quiet
--- hour, and not on the hour when many other jobs run.
-create extension if not exists pg_cron;
-
-select cron.schedule(
-  'taskforge-purge-expired-records',
-  '17 3 * * *',
-  'select public.purge_expired_records()'
-);

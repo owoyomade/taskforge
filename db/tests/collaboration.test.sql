@@ -10,14 +10,14 @@ select plan(38);
 --   invitee   invited by email, not yet a member     stranger  some other verified user
 --   outsider  owner of Tenant Two
 
-insert into auth.users (id, email, email_confirmed_at) values
-  ('11111111-1111-4111-8111-111111111111', 'owner1@test.local', now()),
-  ('22222222-2222-4222-8222-222222222222', 'admin1@test.local', now()),
-  ('33333333-3333-4333-8333-333333333333', 'member1@test.local', now()),
-  ('44444444-4444-4444-8444-444444444444', 'viewer1@test.local', now()),
-  ('66666666-6666-4666-8666-666666666666', 'invitee@test.local', now()),
-  ('77777777-7777-4777-8777-777777777777', 'stranger@test.local', now()),
-  ('55555555-5555-4555-8555-555555555555', 'outsider@test.local', now());
+insert into auth.users (id, email, email_verified) values
+  ('11111111-1111-4111-8111-111111111111', 'owner1@test.local', true),
+  ('22222222-2222-4222-8222-222222222222', 'admin1@test.local', true),
+  ('33333333-3333-4333-8333-333333333333', 'member1@test.local', true),
+  ('44444444-4444-4444-8444-444444444444', 'viewer1@test.local', true),
+  ('66666666-6666-4666-8666-666666666666', 'invitee@test.local', true),
+  ('77777777-7777-4777-8777-777777777777', 'stranger@test.local', true),
+  ('55555555-5555-4555-8555-555555555555', 'outsider@test.local', true);
 
 insert into public.workspaces (id, name, slug) values
   ('aaaaaaaa-0000-4000-8000-00000000000a', 'Tenant One', 'tenant-one'),
@@ -195,12 +195,14 @@ select is_empty($$select 1 from public.comments$$, 'other tenants see no comment
 reset role;
 select set_config('request.jwt.claims', '{"sub":"33333333-3333-4333-8333-333333333333","role":"authenticated"}', true);
 set local role authenticated;
-select lives_ok($$insert into storage.objects (bucket_id, name) values
-  ('attachments', 'aaaaaaaa-0000-4000-8000-00000000000a/cccccccc-0000-4000-8000-00000000000c/eeeeeeee-0000-4000-8000-00000000000e/1-brief.pdf')$$,
+-- Files live outside the database; the app asks can_access_attachment_path()
+-- before every upload, download and delete.
+select ok(public.can_access_attachment_path(
+  'aaaaaaaa-0000-4000-8000-00000000000a/cccccccc-0000-4000-8000-00000000000c/eeeeeeee-0000-4000-8000-00000000000e/1-brief.pdf', 'edit'),
   'editors can upload to their task''s folder');
-select throws_ok($$insert into storage.objects (bucket_id, name) values
-  ('attachments', 'bbbbbbbb-0000-4000-8000-00000000000b/cccccccc-0000-4000-8000-00000000000c/eeeeeeee-0000-4000-8000-00000000000e/2-x.pdf')$$,
-  '42501', null, 'a path naming the wrong workspace is refused');
+select ok(not public.can_access_attachment_path(
+  'bbbbbbbb-0000-4000-8000-00000000000b/cccccccc-0000-4000-8000-00000000000c/eeeeeeee-0000-4000-8000-00000000000e/2-x.pdf', 'edit'),
+  'a path naming the wrong workspace is refused');
 select throws_ok($$insert into public.attachments (workspace_id, project_id, task_id, uploaded_by, file_name, storage_path, content_type, size_bytes)
   values ('aaaaaaaa-0000-4000-8000-00000000000a', 'cccccccc-0000-4000-8000-00000000000c', 'eeeeeeee-0000-4000-8000-00000000000e',
   '33333333-3333-4333-8333-333333333333', 'x.pdf', 'somewhere/else.pdf', 'application/pdf', 10)$$,
@@ -209,7 +211,9 @@ select throws_ok($$insert into public.attachments (workspace_id, project_id, tas
 reset role;
 select set_config('request.jwt.claims', '{"sub":"55555555-5555-4555-8555-555555555555","role":"authenticated"}', true);
 set local role authenticated;
-select is_empty($$select 1 from storage.objects where bucket_id = 'attachments'$$, 'other tenants can''t see the files');
+select ok(not public.can_access_attachment_path(
+  'aaaaaaaa-0000-4000-8000-00000000000a/cccccccc-0000-4000-8000-00000000000c/eeeeeeee-0000-4000-8000-00000000000e/1-brief.pdf', 'view'),
+  'other tenants can''t see the files');
 
 -- Quota: fill the workspace to exactly 100 MB, then try one more byte.
 reset role;

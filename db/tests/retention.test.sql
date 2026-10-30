@@ -3,7 +3,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(10);
+select plan(9);
 
 insert into auth.users (id, email) values
   ('11111111-1111-4111-8111-111111111111', 'owner1@test.local'),
@@ -95,16 +95,10 @@ select ok(
 
 select is((select public.purge_expired_records() ->> 'audit_events'), '0', 'running it again removes nothing');
 
-select is(
-  (select schedule from cron.job where jobname = 'taskforge-purge-expired-records'),
-  '17 3 * * *',
-  'the purge is scheduled daily'
-);
-select is(
-  (select command from cron.job where jobname = 'taskforge-purge-expired-records'),
-  'select public.purge_expired_records()',
-  'the schedule runs the purge function'
-);
+-- The scheduled job (/api/cron/purge) runs it with the app's own login.
+select ok(has_function_privilege('taskforge_app', 'public.purge_expired_records()', 'execute'),
+  'the scheduled job''s login can run the purge');
+
 
 select * from finish();
 rollback;

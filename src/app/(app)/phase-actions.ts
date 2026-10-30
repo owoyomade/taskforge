@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { requireUser } from "@/lib/auth";
+import { asCurrentUser, attemptAsCurrentUser } from "@/lib/db";
 import { toUserMessage } from "@/lib/db-errors";
 import { positionBetween } from "@/lib/ordering";
 import { hasProjectAccess, NO_PERMISSION, type ActionResult } from "@/lib/project-access";
-import { createClient } from "@/lib/supabase/server";
 import { taskTitleSchema } from "@/lib/validation";
 
 const idSchema = z.uuid();
@@ -32,21 +33,21 @@ export async function createPhase(projectId: string, input: { name: string; targ
   if (!parsed.success) return { ok: false, message: firstIssue(parsed.error) };
   if (!idSchema.safeParse(projectId).success || !(await hasProjectAccess(projectId, "edit"))) return NO_PERMISSION;
 
-  const supabase = await createClient();
-  const [{ data: project }, { data: last }] = await Promise.all([
-    supabase.from("projects").select("workspace_id").eq("id", projectId).single(),
-    supabase.from("milestones").select("position").eq("project_id", projectId).order("position", { ascending: false }).limit(1).maybeSingle(),
-  ]);
-  if (!project) return NO_PERMISSION;
-
-  const { error } = await supabase.from("milestones").insert({
-    workspace_id: project.workspace_id,
-    project_id: projectId,
-    name: parsed.data.name,
-    target_date: parsed.data.targetDate,
-    position: positionBetween(last?.position, undefined),
+  const result = await attemptAsCurrentUser(async (db) => {
+    const [project] = await db.query<{ workspace_id: string }>("select workspace_id from public.projects where id = $1", [projectId]);
+    if (!project) return false;
+    const [last] = await db.query<{ position: number }>(
+      "select position from public.milestones where project_id = $1 order by position desc limit 1",
+      [projectId],
+    );
+    await db.query(
+      "insert into public.milestones (workspace_id, project_id, name, target_date, position) values ($1, $2, $3, $4, $5)",
+      [project.workspace_id, projectId, parsed.data.name, parsed.data.targetDate, positionBetween(last?.position, undefined)],
+    );
+    return true;
   });
-  if (error) return { ok: false, message: toUserMessage(error, "createPhase") };
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "createPhase") };
+  if (!result.value) return NO_PERMISSION;
 
   refreshWorkspace();
   return { ok: true };
@@ -57,14 +58,15 @@ export async function updatePhase(phaseId: string, input: { name: string; target
   if (!parsed.success) return { ok: false, message: firstIssue(parsed.error) };
   if (!idSchema.safeParse(phaseId).success) return NO_PERMISSION;
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("milestones")
-    .update({ name: parsed.data.name, target_date: parsed.data.targetDate })
-    .eq("id", phaseId)
-    .select("id");
-  if (error) return { ok: false, message: toUserMessage(error, "updatePhase") };
-  if (data.length === 0) return NO_PERMISSION;
+  const result = await attemptAsCurrentUser((db) =>
+    db.query<{ id: string }>("update public.milestones set name = $2, target_date = $3 where id = $1 returning id", [
+      phaseId,
+      parsed.data.name,
+      parsed.data.targetDate,
+    ]),
+  );
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "updatePhase") };
+  if (result.value.length === 0) return NO_PERMISSION;
 
   refreshWorkspace();
   return { ok: true };
@@ -73,10 +75,11 @@ export async function updatePhase(phaseId: string, input: { name: string; target
 /** Deletes a phase. Its tasks stay in the project, just without a phase. */
 export async function deletePhase(phaseId: string): Promise<ActionResult> {
   if (!idSchema.safeParse(phaseId).success) return NO_PERMISSION;
-  const supabase = await createClient();
-  const { data, error } = await supabase.from("milestones").delete().eq("id", phaseId).select("id");
-  if (error) return { ok: false, message: toUserMessage(error, "deletePhase") };
-  if (data.length === 0) return NO_PERMISSION;
+  const result = await attemptAsCurrentUser((db) =>
+    db.query<{ id: string }>("delete from public.milestones where id = $1 returning id", [phaseId]),
+  );
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "deletePhase") };
+  if (result.value.length === 0) return NO_PERMISSION;
 
   refreshWorkspace();
   return { ok: true };
@@ -86,20 +89,27 @@ export async function deletePhase(phaseId: string): Promise<ActionResult> {
 export async function setTaskPhase(taskId: string, phaseId: string | null): Promise<ActionResult> {
   if (!idSchema.safeParse(taskId).success || (phaseId && !idSchema.safeParse(phaseId).success)) return NO_PERMISSION;
 
-  const supabase = await createClient();
-  const { data: task } = await supabase.from("tasks").select("project_id, workspace_id").eq("id", taskId).maybeSingle();
+  const [task] = await asCurrentUser((db) =>
+    db.query<{ project_id: string; workspace_id: string }>("select project_id, workspace_id from public.tasks where id = $1", [taskId]),
+  );
   if (!task) return { ok: false, message: "That task no longer exists." };
   if (!(await hasProjectAccess(task.project_id, "edit"))) return NO_PERMISSION;
 
-  const { error: removeError } = await supabase.from("milestone_tasks").delete().eq("task_id", taskId);
-  if (removeError) return { ok: false, message: toUserMessage(removeError, "setTaskPhase") };
-
-  if (phaseId) {
-    // The composite foreign key rejects a phase from a different project.
-    const { error } = await supabase
-      .from("milestone_tasks")
-      .insert({ milestone_id: phaseId, task_id: taskId, project_id: task.project_id, workspace_id: task.workspace_id });
-    if (error) return { ok: false, message: error.code === "23503" ? "That phase isn't part of this project." : toUserMessage(error, "setTaskPhase") };
+  // Remove and re-add together, so a failed move leaves the task where it was.
+  const result = await attemptAsCurrentUser(async (db) => {
+    await db.query("delete from public.milestone_tasks where task_id = $1", [taskId]);
+    if (phaseId) {
+      // The composite foreign key rejects a phase from a different project.
+      await db.query("insert into public.milestone_tasks (milestone_id, task_id, project_id, workspace_id) values ($1, $2, $3, $4)", [
+        phaseId,
+        taskId,
+        task.project_id,
+        task.workspace_id,
+      ]);
+    }
+  });
+  if (!result.ok) {
+    return { ok: false, message: result.error.code === "23503" ? "That phase isn't part of this project." : toUserMessage(result.error, "setTaskPhase") };
   }
 
   refreshWorkspace();
@@ -112,49 +122,49 @@ export async function createTaskInPhase(projectId: string, phaseId: string | nul
   if (!parsedTitle.success) return { ok: false, message: firstIssue(parsedTitle.error) };
   if (!idSchema.safeParse(projectId).success || (phaseId && !idSchema.safeParse(phaseId).success)) return NO_PERMISSION;
   if (!(await hasProjectAccess(projectId, "edit"))) return NO_PERMISSION;
+  const user = await requireUser();
 
-  const supabase = await createClient();
-  const [{ data: columns }, { data: claims }, { data: phase }] = await Promise.all([
-    supabase.from("board_columns").select("id, workspace_id, is_done").eq("project_id", projectId).order("position"),
-    supabase.auth.getClaims(),
-    phaseId
-      ? supabase.from("milestones").select("target_date").eq("id", phaseId).eq("project_id", projectId).maybeSingle()
-      : Promise.resolve({ data: null }),
-  ]);
-  const column = columns?.find((candidate) => !candidate.is_done) ?? columns?.[0];
-  if (!column || !claims?.claims.sub) return { ok: false, message: "This project has no board columns." };
-
-  const { data: last } = await supabase
-    .from("tasks")
-    .select("position")
-    .eq("column_id", column.id)
-    .is("parent_task_id", null)
-    .order("position", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const { data: task, error } = await supabase
-    .from("tasks")
-    .insert({
-      workspace_id: column.workspace_id,
-      project_id: projectId,
-      column_id: column.id,
-      title: parsedTitle.data,
-      // New tasks in a phase default to the phase's date, so they show up in "Do next".
-      due_date: phase?.target_date ?? null,
-      position: positionBetween(last?.position, undefined),
-      created_by: claims.claims.sub,
-    })
-    .select("id")
-    .single();
-  if (error) return { ok: false, message: toUserMessage(error, "createTaskInPhase") };
-
-  if (phaseId) {
-    const { error: linkError } = await supabase
-      .from("milestone_tasks")
-      .insert({ milestone_id: phaseId, task_id: task.id, project_id: projectId, workspace_id: column.workspace_id });
-    if (linkError) return { ok: false, message: toUserMessage(linkError, "createTaskInPhase") };
-  }
+  // The task and its phase link are saved together, or not at all.
+  const result = await attemptAsCurrentUser(async (db) => {
+    const columns = await db.query<{ id: string; workspace_id: string; is_done: boolean }>(
+      "select id, workspace_id, is_done from public.board_columns where project_id = $1 order by position",
+      [projectId],
+    );
+    const column = columns.find((candidate) => !candidate.is_done) ?? columns[0];
+    if (!column) return false;
+    const [phase] = phaseId
+      ? await db.query<{ target_date: string | null }>("select target_date from public.milestones where id = $1 and project_id = $2", [phaseId, projectId])
+      : [];
+    const [last] = await db.query<{ position: number }>(
+      "select position from public.tasks where column_id = $1 and parent_task_id is null order by position desc limit 1",
+      [column.id],
+    );
+    const [task] = await db.query<{ id: string }>(
+      `insert into public.tasks (workspace_id, project_id, column_id, title, due_date, position, created_by)
+       values ($1, $2, $3, $4, $5, $6, $7) returning id`,
+      [
+        column.workspace_id,
+        projectId,
+        column.id,
+        parsedTitle.data,
+        // New tasks in a phase default to the phase's date, so they show up in "Do next".
+        phase?.target_date ?? null,
+        positionBetween(last?.position, undefined),
+        user.id,
+      ],
+    );
+    if (phaseId) {
+      await db.query("insert into public.milestone_tasks (milestone_id, task_id, project_id, workspace_id) values ($1, $2, $3, $4)", [
+        phaseId,
+        task.id,
+        projectId,
+        column.workspace_id,
+      ]);
+    }
+    return true;
+  });
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "createTaskInPhase") };
+  if (!result.value) return { ok: false, message: "This project has no board columns." };
 
   refreshWorkspace();
   return { ok: true };

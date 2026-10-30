@@ -1,14 +1,18 @@
 "use server";
 
+import { isAPIError } from "better-auth/api";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 
 import { requireUser } from "@/lib/auth";
 import { authErrorMessage } from "@/lib/auth-errors";
+import { auth } from "@/lib/better-auth";
+import { attemptAsCurrentUser } from "@/lib/db";
 import { toUserMessage } from "@/lib/db-errors";
+import { deleteFiles, saveFile } from "@/lib/file-storage";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { detectImageType, IMAGE_EXTENSIONS } from "@/lib/image-type";
 import { getMyProfile } from "@/lib/profiles";
-import { createClient } from "@/lib/supabase/server";
 import { AVATAR_MAX_BYTES, changePasswordSchema, profileSchema } from "@/lib/validation";
 
 export async function updateProfile(_previous: FormState, formData: FormData): Promise<FormState> {
@@ -19,10 +23,11 @@ export async function updateProfile(_previous: FormState, formData: FormData): P
     return validationError(parsed.error, values);
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.from("profiles").update({ full_name: parsed.data.fullName }).eq("id", user.id);
-  if (error) {
-    return { status: "error", message: toUserMessage(error, "updateProfile"), values };
+  const result = await attemptAsCurrentUser((db) =>
+    db.query("update public.profiles set full_name = $2 where id = $1", [user.id, parsed.data.fullName]),
+  );
+  if (!result.ok) {
+    return { status: "error", message: toUserMessage(result.error, "updateProfile"), values };
   }
 
   revalidatePath("/", "layout");
@@ -47,28 +52,26 @@ export async function uploadAvatar(_previous: FormState, formData: FormData): Pr
   }
 
   // A new file name on every upload means browsers never show a stale cached
-  // avatar. The path starts with the user's id, which storage policies require.
+  // avatar. The path starts with the user's id: the profiles table only
+  // accepts paths in your own folder, and can_view_avatar() reads it.
   const path = `${user.id}/avatar-${Date.now()}.${IMAGE_EXTENSIONS[imageType]}`;
-  const supabase = await createClient();
-
-  const { error: uploadError } = await supabase.storage
-    .from("avatars")
-    .upload(path, bytes, { contentType: imageType, upsert: false });
-  if (uploadError) {
-    console.error(JSON.stringify({ level: "error", context: "uploadAvatar", message: uploadError.message }));
-    return { status: "error", message: "The upload failed. Please try again." };
-  }
-
   const previousPath = (await getMyProfile()).avatarPath;
-  const { error: updateError } = await supabase.from("profiles").update({ avatar_path: path }).eq("id", user.id);
-  if (updateError) {
-    // Don't leave an orphaned file behind if the profile didn't change.
-    await supabase.storage.from("avatars").remove([path]);
-    return { status: "error", message: toUserMessage(updateError, "uploadAvatar") };
+
+  // The profile change and the upload succeed or fail together.
+  const result = await attemptAsCurrentUser(async (db) => {
+    await db.query("update public.profiles set avatar_path = $2 where id = $1", [user.id, path]);
+    await saveFile("avatars", path, bytes, imageType);
+  });
+  if (!result.ok) {
+    if (!result.error.code) {
+      console.error(JSON.stringify({ level: "error", context: "uploadAvatar", message: result.error.message }));
+      return { status: "error", message: "The upload failed. Please try again." };
+    }
+    return { status: "error", message: toUserMessage(result.error, "uploadAvatar") };
   }
 
   if (previousPath) {
-    await supabase.storage.from("avatars").remove([previousPath]);
+    await deleteFiles("avatars", [previousPath]).catch(() => {});
   }
 
   revalidatePath("/", "layout");
@@ -82,19 +85,19 @@ export async function removeAvatar(): Promise<FormState> {
     return { status: "success", message: "Photo removed." };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.from("profiles").update({ avatar_path: null }).eq("id", user.id);
-  if (error) {
-    return { status: "error", message: toUserMessage(error, "removeAvatar") };
+  const result = await attemptAsCurrentUser((db) => db.query("update public.profiles set avatar_path = null where id = $1", [user.id]));
+  if (!result.ok) {
+    return { status: "error", message: toUserMessage(result.error, "removeAvatar") };
   }
-  await supabase.storage.from("avatars").remove([avatarPath]);
+  // The profile no longer points at it, so a failed delete only leaves an unreachable file.
+  await deleteFiles("avatars", [avatarPath]).catch(() => {});
 
   revalidatePath("/", "layout");
   return { status: "success", message: "Photo removed." };
 }
 
 export async function changePassword(_previous: FormState, formData: FormData): Promise<FormState> {
-  const user = await requireUser();
+  await requireUser();
   const parsed = changePasswordSchema.safeParse({
     currentPassword: textField(formData, "currentPassword"),
     password: textField(formData, "password"),
@@ -104,24 +107,22 @@ export async function changePassword(_previous: FormState, formData: FormData): 
     return validationError(parsed.error);
   }
 
-  const supabase = await createClient();
-
-  // Re-checking the current password means someone who finds an unlocked,
-  // signed-in laptop can't silently take over the account.
-  const { error: verifyError } = await supabase.auth.signInWithPassword({
-    email: user.email,
-    password: parsed.data.currentPassword,
-  });
-  if (verifyError) {
-    return {
-      status: "error",
-      message: "Please fix the highlighted fields.",
-      fieldErrors: { currentPassword: ["That isn't your current password."] },
-    };
-  }
-
-  const { error } = await supabase.auth.updateUser({ password: parsed.data.password });
-  if (error) {
+  // Better Auth re-checks the current password, so someone who finds an
+  // unlocked, signed-in laptop can't silently take over the account. Other
+  // signed-in browsers are signed out.
+  try {
+    await auth.api.changePassword({
+      body: { currentPassword: parsed.data.currentPassword, newPassword: parsed.data.password, revokeOtherSessions: true },
+      headers: await headers(),
+    });
+  } catch (error) {
+    if (isAPIError(error) && error.body?.code === "INVALID_PASSWORD") {
+      return {
+        status: "error",
+        message: "Please fix the highlighted fields.",
+        fieldErrors: { currentPassword: ["That isn't your current password."] },
+      };
+    }
     return { status: "error", message: authErrorMessage(error) };
   }
 

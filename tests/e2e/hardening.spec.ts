@@ -7,7 +7,7 @@ import { signIn } from "./helpers";
 /**
  * Alice's signed-in session, created once per worker and reused by every
  * test that asks for it. Signing in for each of the ~30 page checks would
- * trip Supabase's limit of 30 sign-ins per 5 minutes from one address and
+ * trip the sign-in limit of 30 per 5 minutes from one address and
  * fail unrelated tests.
  */
 const test = base.extend<object, { aliceSession: string }>({
@@ -25,7 +25,7 @@ const test = base.extend<object, { aliceSession: string }>({
   ],
 });
 
-// Uses the seed data from supabase/seed.sql.
+// Uses the seed data from db/seed.sql.
 const WEBSITE_PROJECT = "/w/acme-studio/p/30000000-0000-4000-8000-000000000001";
 const SEED_TASK = "60000000-0000-4000-8000-000000000001";
 

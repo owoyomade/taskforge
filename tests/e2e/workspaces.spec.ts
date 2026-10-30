@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { signIn } from "./helpers";
 
-// These tests use the seed accounts from supabase/seed.sql (run `npm run db:reset`).
+// These tests use the seed accounts from db/seed.sql (run `npm run db:reset`).
 
 test("members of one workspace cannot open another tenant's workspace", async ({ page }) => {
   await signIn(page, "bob@example.com");

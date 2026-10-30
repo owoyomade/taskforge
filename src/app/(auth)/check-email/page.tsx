@@ -9,7 +9,7 @@ export default function CheckEmailPage() {
       <h1 className="text-2xl font-semibold">Check your email</h1>
       <p className="text-muted-foreground">
         We sent a confirmation link to the address you entered. Open it to verify your email and set up your
-        workspace. The link expires in one hour.
+        workspace. The link expires in 24 hours.
       </p>
       <p className="text-sm text-muted-foreground">
         Already confirmed?{" "}

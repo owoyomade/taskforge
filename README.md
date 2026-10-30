@@ -5,52 +5,48 @@ ready-made plan, set a finish date, and Taskforge lays out the phases and
 tasks, then shows you what to do next. Each team's data is kept strictly
 separate.
 
-Built with Next.js, TypeScript, Tailwind CSS, shadcn/ui and Supabase
-(Postgres, Auth, Storage, Row Level Security).
+Built with Next.js, TypeScript, Tailwind CSS and shadcn/ui on plain
+Postgres with Row Level Security, Better Auth for sign-in, and private file
+storage (Vercel Blob in production). Everything runs on free tiers.
 
-> **Status:** all five build phases complete. Guided planning with 30
-> templates, phases shown as a journey, a "Do next" home page, Plan, Board,
-> List and Timeline views, notifications, activity history, invitations,
-> comments and attachments, plus security headers, accessibility checks,
-> a health check and data retention. To put it online, follow
+> **Status:** feature complete. Guided planning with 30 templates, phases
+> shown as a journey, a "Do next" home page, Plan, Board, List and Timeline
+> views, notifications, activity history, invitations, comments and
+> attachments, plus security headers, accessibility checks, a health check
+> and data retention. To put it online, follow
 > [docs/deployment.md](docs/deployment.md). Design notes are in
 > [docs/architecture.md](docs/architecture.md).
 
 ## Requirements
 
 - Node.js 22 or newer
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) running (for the local Supabase stack)
-
-The Supabase CLI is installed as a project dependency, so there's nothing
-else to install globally.
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) running
+  (for the local database and mail inbox)
 
 ## Getting started
 
 ```bash
 npm install
-npm run db:start        # starts Postgres, Auth, Storage and a test mail inbox in Docker
 cp .env.example .env.local
-```
-
-Copy the **Publishable key** printed by `npm run db:start` into
-`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in `.env.local` (run
-`npm run db:status` to see it again). Then:
-
-```bash
-npm run db:reset        # applies migrations and loads demo data
+npm run db:up           # starts Postgres 17 and Mailpit (docker-compose.yml)
+npm run db:reset        # builds the database from db/migrations and loads demo data
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000. The values in `.env.example` already match the
+local services; for `BETTER_AUTH_SECRET`, generate one with the command
+shown in that file.
 
 ### Local services
 
-| Service | URL |
+| Service | Address |
 | --- | --- |
 | App | http://localhost:3000 |
-| Supabase Studio (database browser) | http://127.0.0.1:54323 |
-| Mailpit (catches every email the app sends) | http://127.0.0.1:54324 |
+| Mailpit (catches every email the app sends) | http://127.0.0.1:8025 |
+| Database (any Postgres tool) | `postgres://postgres:postgres@127.0.0.1:5433/taskforge` |
 | Health check | http://localhost:3000/api/health |
+
+Uploaded files are saved in the git-ignored `.data/uploads` folder.
 
 ### Demo accounts
 
@@ -88,24 +84,26 @@ address.
 | `npm run dev` | Start the app in development mode |
 | `npm run check` | Typecheck, lint, unit tests and production build |
 | `npm run test` | Unit and component tests (Vitest) |
-| `npm run test:db` | Database security tests (pgTAP); needs `db:start` |
-| `npm run test:e2e` | Browser tests (Playwright) against a production build, then accessibility and security checks; needs `db:start` and `db:reset` |
+| `npm run test:db` | Database security tests (pgTAP); needs `db:up` |
+| `npm run test:e2e` | Browser tests (Playwright) against a production build, then accessibility and security checks |
 | `npm run test:e2e:fresh` | Resets the local database, then runs the browser tests (use this one; the tests expect fresh demo data) |
-| `npm run db:reset` | Rebuild the local database from migrations and seed data |
-| `npm run db:types` | Regenerate TypeScript types from the local database |
+| `npm run db:up` / `db:down` | Start or stop the local database and mail inbox |
+| `npm run db:migrate` | Apply any new files in `db/migrations` (safe to run repeatedly; also used for production) |
+| `npm run db:roles` | Let the app's two database logins sign in, with the passwords in `DATABASE_URL` and `DATABASE_AUTH_URL` |
+| `npm run db:reset` | Local only: rebuild the database from scratch and load demo data |
 
 The first time you run browser tests, install the browser with
 `npx playwright install chromium`.
 
 ## Database changes
 
-Schema changes are SQL files in `supabase/migrations/`, applied in filename
-order. To add one:
+Schema changes are SQL files in `db/migrations/`, applied in filename order
+by `npm run db:migrate`, each in its own transaction. To add one, create a
+file named with the date and a short description, for example
+`db/migrations/20261110000100_add_task_estimates.sql`, then:
 
 ```bash
-npx supabase migration new describe_the_change
-# edit the new file, then:
-npm run db:reset && npm run db:types && npm run test:db
+npm run db:reset && npm run test:db
 ```
 
 Every new tenant-owned table needs RLS enabled, policies, and pgTAP tests

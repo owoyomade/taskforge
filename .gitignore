@@ -45,9 +45,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# supabase CLI local state
-/supabase/.temp/
-/supabase/.branches/
 
 # logs
 *.log
@@ -60,3 +57,6 @@ Thumbs.db
 
 # database backups contain personal data; never commit them
 /backups/
+
+# files uploaded during local development
+/.data/
