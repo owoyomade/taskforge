@@ -301,8 +301,10 @@ function TaskEditForm({ task }: { task: TaskDetail }) {
           placeholder="Add details, links or acceptance criteria"
         />
       </div>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="grid gap-1.5">
+      {/* Dates get a row of their own: three columns left the date fields too
+          narrow to show a full date in the drawer. */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-1.5 sm:col-span-2 sm:max-w-[calc(50%-0.5rem)]">
           <Label htmlFor={ids.priority}>Priority</Label>
           <NativeSelect id={ids.priority} name="priority" defaultValue={value("priority", task.priority)}>
             {PRIORITIES.map((priority) => (

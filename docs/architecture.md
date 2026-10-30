@@ -21,9 +21,14 @@ phase highlighted ("you are here"). Three ideas run through the UI:
   task moves it to the board's done column behind the scenes. The board and
   list are still one tab away for people who want them.
 
-Visual language: a dark navy "map frame" sidebar, route blue for actions and
-the journey line, sun yellow for "now/today", leaf green for done, ember red
-for overdue, and one typeface (Onest) throughout.
+Visual language ("warm studio"): a soft off-white page and light warm
+sidebar, white cards, coral as the single action colour, amber for
+"now/today", green for done, a deeper red kept for overdue and destructive
+actions, rounded corners, and one typeface (Plus Jakarta Sans) throughout.
+Light is the default; people can choose Dark or "Match my computer" from
+the user menu (next-themes, saved in the browser). Each template category
+has its own icon and soft tint so the template library can be scanned by
+topic. Tokens live in `src/app/globals.css`.
 
 ## Stack and why
 

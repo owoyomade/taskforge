@@ -40,9 +40,8 @@ export default async function WorkspaceHomePage({ params, searchParams }: PagePr
   const newProjectHref = `/w/${workspace.slug}/projects/new`;
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-10">
+    <div className="mx-auto grid max-w-6xl grid-cols-1 gap-10">
       <header className="grid gap-1">
-        <p className="text-sm font-medium text-muted-foreground">{workspace.name}</p>
         <h1 className="text-3xl font-bold sm:text-4xl">{firstName ? `Hi ${firstName}` : "Welcome back"}</h1>
         <p className="text-muted-foreground">
           {myTasks.length > 0
@@ -53,15 +52,20 @@ export default async function WorkspaceHomePage({ params, searchParams }: PagePr
 
       <MyInvitations invitations={invitations} />
 
-      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
-        <section aria-labelledby="do-next-heading" className="grid content-start gap-4">
+      {/* Side by side only on wide screens; below that, "Do next" sits on top so
+          project names have room instead of being squeezed into half a page. */}
+      <div className="grid gap-10 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
+        {/* grid-cols-1 (a column that may shrink to zero) rather than the default
+            "auto" column: otherwise a long project name sets the column's
+            minimum width and the whole page scrolls sideways. */}
+        <section aria-labelledby="do-next-heading" className="grid min-w-0 grid-cols-1 content-start gap-4">
           <h2 id="do-next-heading" className="text-xl font-bold">
             Do next
           </h2>
           <DoNext tasks={myTasks} today={today} workspaceSlug={workspace.slug} />
         </section>
 
-        <section aria-labelledby="projects-heading" className="grid content-start gap-4">
+        <section aria-labelledby="projects-heading" className="grid min-w-0 grid-cols-1 content-start gap-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 id="projects-heading" className="text-xl font-bold">
               {showArchived ? "Archived projects" : "Projects"}
@@ -74,7 +78,7 @@ export default async function WorkspaceHomePage({ params, searchParams }: PagePr
             </Link>
           </div>
 
-          <ul className="grid gap-3 sm:grid-cols-2">
+          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 [&>li]:min-w-0">
             {canCreate && !showArchived ? (
               <li>
                 <Link

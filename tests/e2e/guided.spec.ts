@@ -15,7 +15,7 @@ test("a new project from a template comes with phases, dates and a working plan"
   await page.getByRole("link", { name: "New project" }).first().click();
   await expect(page.getByRole("heading", { name: "What are you planning?" })).toBeVisible();
 
-  await page.getByRole("button", { name: /^Events Team offsite/ }).click();
+  await page.getByRole("button", { name: /^Team offsite/ }).click();
   const name = `Offsite ${Date.now()}`;
   await page.getByLabel("Project name").fill(name);
   await page.getByLabel("When should it be finished?").fill("2030-06-30");

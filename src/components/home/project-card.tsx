@@ -20,7 +20,7 @@ export function ProjectCard({ href, project, phases, counts }: ProjectCardProps)
   return (
     <Link
       href={href}
-      className="grid h-full content-start gap-4 rounded-2xl border bg-card p-5 outline-none hover:border-primary/40 hover:shadow-sm focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="grid h-full grid-cols-1 content-start gap-4 rounded-2xl border bg-card p-5 outline-none hover:border-primary/40 hover:shadow-sm focus-visible:ring-3 focus-visible:ring-ring/50"
     >
       <div className="flex items-center gap-2">
         <ColorDot color={project.color} className="size-3" />

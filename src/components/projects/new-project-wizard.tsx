@@ -1,7 +1,22 @@
 "use client";
 
 import { useActionState, useId, useMemo, useState } from "react";
-import { ArrowLeftIcon, CheckIcon, SearchIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  BookmarkIcon,
+  CheckIcon,
+  ClipboardListIcon,
+  FilePlusIcon,
+  GraduationCapIcon,
+  HandshakeIcon,
+  HouseIcon,
+  LaptopIcon,
+  MegaphoneIcon,
+  PartyPopperIcon,
+  SearchIcon,
+  UsersIcon,
+  type LucideIcon,
+} from "lucide-react";
 
 import { createProjectFromTemplate } from "@/app/(app)/template-actions";
 import { ColorPicker } from "@/components/color-picker";
@@ -12,7 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { addDays, formatDate } from "@/lib/dates";
 import { initialFormState } from "@/lib/form-state";
-import { asColor, type Color } from "@/lib/project-constants";
+import { asColor, LABEL_STYLES, type Color } from "@/lib/project-constants";
 import { BLANK_TEMPLATE, TEMPLATE_CATEGORIES, TEMPLATES, type BuiltInTemplate } from "@/lib/templates/library";
 import type { TemplateDefinition } from "@/lib/templates/schema";
 import { cn } from "@/lib/utils";
@@ -54,6 +69,28 @@ export function NewProjectWizard({ workspaceId, today, savedTemplates }: NewProj
   );
 }
 
+// Each category gets an icon and a soft colour so the list can be scanned by
+// topic rather than read card by card.
+const CATEGORY_LOOK: Record<string, { icon: LucideIcon; tint: string }> = {
+  [TEAM_CATEGORY]: { icon: BookmarkIcon, tint: "bg-accent text-accent-foreground" },
+  Events: { icon: PartyPopperIcon, tint: LABEL_STYLES.rose },
+  Marketing: { icon: MegaphoneIcon, tint: LABEL_STYLES.amber },
+  "Product and software": { icon: LaptopIcon, tint: LABEL_STYLES.blue },
+  "Hiring and people": { icon: UsersIcon, tint: LABEL_STYLES.violet },
+  Operations: { icon: ClipboardListIcon, tint: LABEL_STYLES.slate },
+  "Clients and sales": { icon: HandshakeIcon, tint: LABEL_STYLES.teal },
+  "Personal and home": { icon: HouseIcon, tint: LABEL_STYLES.rose },
+  "School and learning": { icon: GraduationCapIcon, tint: LABEL_STYLES.violet },
+};
+const FALLBACK_LOOK = { icon: ClipboardListIcon, tint: LABEL_STYLES.slate };
+
+/** "about 6 weeks": a rough, friendly length for the suggested schedule. */
+function roughLength(days: number): string {
+  if (days < 14) return `${days} days`;
+  if (days < 60) return `about ${Math.round(days / 7)} weeks`;
+  return `about ${Math.round(days / 30)} months`;
+}
+
 function ChooseStep({ savedTemplates, onChoose }: { savedTemplates: WizardTemplate[]; onChoose: (template: WizardTemplate) => void }) {
   const [category, setCategory] = useState<string>("All");
   const [query, setQuery] = useState("");
@@ -67,9 +104,18 @@ function ChooseStep({ savedTemplates, onChoose }: { savedTemplates: WizardTempla
       (category === "All" || template.category === category) &&
       (!normalized || `${template.name} ${template.summary} ${template.category}`.toLowerCase().includes(normalized)),
   );
+  // Browsing everything shows one section per category; a search or a
+  // chosen category shows a single flat list.
+  const sections =
+    category === "All" && !normalized
+      ? categories
+          .slice(1)
+          .map((name) => ({ name, templates: shown.filter((template) => template.category === name) }))
+          .filter((section) => section.templates.length > 0)
+      : [{ name: category === "All" ? "Matching plans" : category, templates: shown }];
 
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-8">
       <div className="grid gap-2">
         <h1 className="text-3xl font-bold">What are you planning?</h1>
         <p className="max-w-2xl text-muted-foreground">
@@ -79,18 +125,18 @@ function ChooseStep({ savedTemplates, onChoose }: { savedTemplates: WizardTempla
       </div>
 
       <div className="grid gap-3">
-        <div className="relative max-w-sm">
+        <div className="relative max-w-md">
           <label htmlFor={searchId} className="sr-only">
             Search templates
           </label>
-          <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             id={searchId}
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search, e.g. wedding, launch, hiring"
-            className="h-11 rounded-xl pl-9"
+            className="h-11 rounded-full bg-card pl-10"
           />
         </div>
         <div role="group" aria-label="Filter by category" className="flex flex-wrap gap-2">
@@ -100,7 +146,7 @@ function ChooseStep({ savedTemplates, onChoose }: { savedTemplates: WizardTempla
               type="button"
               aria-pressed={category === name}
               onClick={() => setCategory(name)}
-              className="rounded-full border px-3.5 py-1.5 text-sm outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground"
+              className="rounded-full border bg-card px-3.5 py-1.5 text-sm outline-none hover:border-primary/40 focus-visible:ring-3 focus-visible:ring-ring/50 aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground"
             >
               {name}
             </button>
@@ -108,18 +154,46 @@ function ChooseStep({ savedTemplates, onChoose }: { savedTemplates: WizardTempla
         </div>
       </div>
 
-      <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {category === "All" && !normalized ? (
-          <li>
-            <TemplateCard template={{ ...fromBuiltIn(BLANK_TEMPLATE), category: "Blank" }} onChoose={onChoose} />
-          </li>
-        ) : null}
-        {shown.map((template) => (
-          <li key={template.ref}>
-            <TemplateCard template={template} onChoose={onChoose} />
-          </li>
-        ))}
-      </ul>
+      {category === "All" && !normalized ? (
+        <button
+          type="button"
+          onClick={() => onChoose(fromBuiltIn(BLANK_TEMPLATE))}
+          className="flex items-center gap-4 rounded-2xl border border-dashed border-primary/40 bg-card p-4 text-left outline-none hover:border-primary hover:bg-accent/40 focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent text-accent-foreground" aria-hidden="true">
+            <FilePlusIcon className="size-5" />
+          </span>
+          <span className="grid gap-0.5">
+            <span className="font-semibold">Start from scratch</span>
+            <span className="text-sm text-muted-foreground">An empty board with Not started, Doing and Done columns.</span>
+          </span>
+        </button>
+      ) : null}
+
+      {sections.map((section) => {
+        const look = CATEGORY_LOOK[section.name] ?? FALLBACK_LOOK;
+        const Icon = look.icon;
+        return (
+          <section key={section.name} aria-labelledby={`${searchId}-${section.name}`} className="grid gap-3">
+            <h2 id={`${searchId}-${section.name}`} className="flex items-center gap-2 text-lg font-bold">
+              {CATEGORY_LOOK[section.name] ? (
+                <span className={cn("grid size-7 place-items-center rounded-lg", look.tint)} aria-hidden="true">
+                  <Icon className="size-4" />
+                </span>
+              ) : null}
+              {section.name}
+            </h2>
+            <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 [&>li]:min-w-0">
+              {section.templates.map((template) => (
+                <li key={template.ref}>
+                  <TemplateCard template={template} onChoose={onChoose} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+
       {shown.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No templates match. Try another word, or{" "}
@@ -135,28 +209,33 @@ function ChooseStep({ savedTemplates, onChoose }: { savedTemplates: WizardTempla
 
 function TemplateCard({ template, onChoose }: { template: WizardTemplate; onChoose: (template: WizardTemplate) => void }) {
   const { phases, tasks } = template.definition;
+  const look = CATEGORY_LOOK[template.category] ?? FALLBACK_LOOK;
+  const Icon = look.icon;
   return (
     <button
       type="button"
       onClick={() => onChoose(template)}
-      className="grid h-full w-full content-start gap-3 rounded-2xl border bg-card p-5 text-left outline-none hover:border-primary/50 hover:shadow-sm focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="grid h-full w-full grid-cols-1 content-start gap-3 rounded-2xl border bg-card p-5 text-left outline-none hover:border-primary/50 hover:shadow-[0_4px_16px_-8px] hover:shadow-primary/30 focus-visible:ring-3 focus-visible:ring-ring/50"
     >
-      <span className="text-xs font-medium text-muted-foreground">{template.category}</span>
-      <span className="text-lg leading-tight font-semibold">{template.name}</span>
-      <span className="text-sm text-muted-foreground">{template.summary}</span>
-      {phases.length > 0 ? (
-        // A miniature of the journey: one stop per phase.
-        <span className="mt-auto flex items-center gap-1 pt-2" aria-label={`Phases: ${phases.map((phase) => phase.name).join(", ")}`}>
-          {phases.map((phase, index) => (
-            <span key={phase.name + index} className="flex flex-1 items-center gap-1" aria-hidden="true">
-              <span className="size-2.5 shrink-0 rounded-full border-2 border-primary bg-card" />
-              {index < phases.length - 1 ? <span className="h-0.5 flex-1 rounded-full bg-primary/30" /> : null}
-            </span>
-          ))}
+      <span className="flex items-start gap-3">
+        <span className={cn("grid size-9 shrink-0 place-items-center rounded-xl", look.tint)} aria-hidden="true">
+          <Icon className="size-[1.125rem]" />
         </span>
+        <span className="min-w-0 pt-1.5 text-base leading-tight font-semibold">{template.name}</span>
+      </span>
+      <span className="line-clamp-2 text-sm text-muted-foreground">{template.summary}</span>
+      {phases.length > 0 ? (
+        // The phases in order, so people can see whether the plan fits them.
+        <ol className="mt-auto flex flex-wrap gap-1.5 pt-1" aria-label="Phases">
+          {phases.map((phase, index) => (
+            <li key={phase.name + index} className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-secondary-foreground">
+              <span className="text-muted-foreground">{index + 1}</span> {phase.name}
+            </li>
+          ))}
+        </ol>
       ) : null}
       <span className="text-xs text-muted-foreground">
-        {phases.length > 0 ? `${phases.length} phases, ${tasks.length} tasks` : "Empty board"}
+        {tasks.length} tasks, {roughLength(template.durationDays)}
       </span>
     </button>
   );

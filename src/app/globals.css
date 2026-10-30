@@ -2,8 +2,8 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-/* Dark mode follows the operating system setting. */
-@custom-variant dark (@media (prefers-color-scheme: dark));
+/* Dark mode is a choice (user menu → Appearance), applied as a class on <html>. */
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
   --color-background: var(--background);
@@ -54,81 +54,90 @@
 
 :root {
   /*
-   * Taskforge "route map" palette. Projects are journeys: the route blue
-   * draws the line and main actions, sun marks "you are here / today",
-   * leaf means done, ember means overdue. The sidebar is the dark map frame.
+   * Taskforge "warm studio" palette: friendly and calm for people new to
+   * project management. Coral is the one action colour (buttons, links,
+   * "you are here"); amber marks the current phase and today, green means
+   * done, and a deeper red is kept for overdue and destructive actions so
+   * it never gets confused with an ordinary button.
+   *
+   * Contrast: coral #CB4536 on white is 4.7:1 and warm ink on the
+   * off-white page is 14:1, so text passes WCAG AA.
    */
-  --background: oklch(0.982 0.005 270);
-  --foreground: oklch(0.25 0.06 265);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.25 0.06 265);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.25 0.06 265);
-  --primary: oklch(0.53 0.22 268);
-  --primary-foreground: oklch(0.99 0.005 270);
-  --secondary: oklch(0.95 0.015 270);
-  --secondary-foreground: oklch(0.3 0.06 265);
-  --muted: oklch(0.955 0.01 270);
-  --muted-foreground: oklch(0.5 0.03 265);
-  --accent: oklch(0.94 0.035 270);
-  --accent-foreground: oklch(0.35 0.14 268);
-  --destructive: oklch(0.53 0.21 22);
-  --border: oklch(0.91 0.012 270);
-  --input: oklch(0.88 0.015 270);
-  --ring: oklch(0.6 0.18 268);
-  --sun: oklch(0.83 0.16 80);
-  --sun-foreground: oklch(0.32 0.07 70);
-  --leaf: oklch(0.6 0.11 175);
-  --ember: oklch(0.53 0.21 22);
-  --chart-1: oklch(0.53 0.22 268);
-  --chart-2: oklch(0.6 0.11 175);
-  --chart-3: oklch(0.83 0.16 80);
-  --chart-4: oklch(0.58 0.21 22);
-  --chart-5: oklch(0.55 0.15 310);
-  --radius: 0.75rem;
-  --sidebar: oklch(0.25 0.06 265);
-  --sidebar-foreground: oklch(0.93 0.015 270);
-  --sidebar-primary: oklch(0.83 0.16 80);
-  --sidebar-primary-foreground: oklch(0.25 0.06 265);
-  --sidebar-accent: oklch(0.32 0.07 265);
-  --sidebar-accent-foreground: oklch(0.99 0 0);
-  --sidebar-border: oklch(0.34 0.06 265);
-  --sidebar-ring: oklch(0.83 0.16 80);
+  --background: #faf6f1; /* off-white page */
+  --foreground: #2b2320; /* warm ink */
+  --card: #ffffff;
+  --card-foreground: #2b2320;
+  --popover: #ffffff;
+  --popover-foreground: #2b2320;
+  --primary: #cb4536; /* coral */
+  --primary-foreground: #ffffff;
+  --secondary: #f3ece4;
+  --secondary-foreground: #3a302b;
+  --muted: #f3ece4;
+  --muted-foreground: #6b5f57;
+  --accent: #fbe8e3; /* coral tint, for hover and selected states */
+  --accent-foreground: #8f2c21;
+  --destructive: #b42318;
+  --border: #eae0d6;
+  --input: #ddd0c3;
+  --ring: #e3826f;
+  --sun: #f2b544; /* amber: current phase, today */
+  --sun-foreground: #4a3410;
+  --leaf: #2f8a63; /* green: done */
+  --ember: #b42318; /* red: overdue */
+  --chart-1: #cb4536;
+  --chart-2: #2f8a63;
+  --chart-3: #f2b544;
+  --chart-4: #5b7fd6;
+  --chart-5: #9b5db5;
+  --radius: 0.875rem;
+  --sidebar: #f4ede5;
+  --sidebar-foreground: #3a302b;
+  --sidebar-primary: #cb4536;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ebdfd2;
+  --sidebar-accent-foreground: #2b2320;
+  --sidebar-border: #e6dacd;
+  --sidebar-ring: #cb4536;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: oklch(0.17 0.03 265);
-    --foreground: oklch(0.95 0.01 270);
-    --card: oklch(0.21 0.035 265);
-    --card-foreground: oklch(0.95 0.01 270);
-    --popover: oklch(0.23 0.035 265);
-    --popover-foreground: oklch(0.95 0.01 270);
-    --primary: oklch(0.7 0.16 268);
-    --primary-foreground: oklch(0.18 0.04 265);
-    --secondary: oklch(0.27 0.04 265);
-    --secondary-foreground: oklch(0.95 0.01 270);
-    --muted: oklch(0.25 0.035 265);
-    --muted-foreground: oklch(0.72 0.03 265);
-    --accent: oklch(0.3 0.06 268);
-    --accent-foreground: oklch(0.9 0.06 268);
-    --destructive: oklch(0.74 0.16 22);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.7 0.16 268);
-    --sun: oklch(0.83 0.15 80);
-    --sun-foreground: oklch(0.25 0.05 70);
-    --leaf: oklch(0.7 0.11 175);
-    --ember: oklch(0.74 0.16 22);
-    --sidebar: oklch(0.14 0.03 265);
-    --sidebar-foreground: oklch(0.93 0.015 270);
-    --sidebar-primary: oklch(0.83 0.15 80);
-    --sidebar-primary-foreground: oklch(0.2 0.04 265);
-    --sidebar-accent: oklch(0.22 0.04 265);
-    --sidebar-accent-foreground: oklch(0.99 0 0);
-    --sidebar-border: oklch(1 0 0 / 8%);
-    --sidebar-ring: oklch(0.83 0.15 80);
-  }
+/* Warm charcoal rather than blue-black, so dark mode keeps the same mood. */
+:root.dark {
+  --background: #1c1816;
+  --foreground: #f3ece6;
+  --card: #25201d;
+  --card-foreground: #f3ece6;
+  --popover: #2a2420;
+  --popover-foreground: #f3ece6;
+  --primary: #ff8a73;
+  --primary-foreground: #2b1410;
+  --secondary: #2f2925;
+  --secondary-foreground: #f3ece6;
+  --muted: #2a2421;
+  --muted-foreground: #b8aba1;
+  --accent: #3a2722;
+  --accent-foreground: #ffc2b5;
+  --destructive: #ff7a6b;
+  --border: rgb(255 255 255 / 9%);
+  --input: rgb(255 255 255 / 15%);
+  --ring: #ff8a73;
+  --sun: #f5be55;
+  --sun-foreground: #2b1e05;
+  --leaf: #5cc497;
+  --ember: #ff7a6b;
+  --chart-1: #ff8a73;
+  --chart-2: #5cc497;
+  --chart-3: #f5be55;
+  --chart-4: #87a5ef;
+  --chart-5: #c58fe0;
+  --sidebar: #181412;
+  --sidebar-foreground: #e9dfd7;
+  --sidebar-primary: #ff8a73;
+  --sidebar-primary-foreground: #2b1410;
+  --sidebar-accent: #2a2420;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgb(255 255 255 / 7%);
+  --sidebar-ring: #ff8a73;
 }
 
 @layer base {
@@ -156,6 +165,6 @@
   h1,
   h2,
   h3 {
-    @apply font-heading tracking-tight text-balance;
+    @apply font-heading tracking-[-0.01em] text-balance;
   }
 }

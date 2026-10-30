@@ -17,18 +17,18 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-10">{children}</div>
       </main>
 
-      <aside aria-hidden="true" className="relative hidden overflow-hidden bg-primary lg:block">
+      <aside aria-hidden="true" className="relative hidden overflow-hidden bg-accent lg:block">
         <div className="absolute inset-y-0 left-16 flex items-center gap-4">
           {BOARD.map(({ column, cards }, columnIndex) => (
             <div
               key={column}
-              className="w-56 rounded-xl bg-primary-foreground/10 p-3"
+              className="w-56 rounded-xl bg-background/70 p-3"
               style={{ transform: `translateY(${(columnIndex - 1) * 28}px)` }}
             >
-              <p className="mb-3 px-1 text-sm font-medium text-primary-foreground">{column}</p>
+              <p className="mb-3 px-1 text-sm font-semibold text-accent-foreground">{column}</p>
               <div className="grid gap-2">
                 {cards.map((card) => (
-                  <div key={card} className="rounded-lg bg-card px-3 py-3 text-sm text-card-foreground shadow-sm">
+                  <div key={card} className="rounded-lg border bg-card px-3 py-3 text-sm text-card-foreground">
                     {card}
                   </div>
                 ))}

@@ -5,15 +5,16 @@ import { contentSecurityPolicy, createNonce } from "@/lib/security-headers";
 import { updateSession } from "@/lib/supabase/proxy";
 
 export async function proxy(request: NextRequest) {
+  const nonce = createNonce();
   const csp = contentSecurityPolicy({
-    nonce: createNonce(),
+    nonce,
     isDev: process.env.NODE_ENV === "development",
     supabaseUrl: publicEnv.NEXT_PUBLIC_SUPABASE_URL,
   });
 
   // Next.js reads the nonce from the request's CSP header and adds it to its
   // own script tags; the response header is what the browser enforces.
-  const response = await updateSession(request, { "Content-Security-Policy": csp });
+  const response = await updateSession(request, { "Content-Security-Policy": csp, "x-nonce": nonce });
   response.headers.set("Content-Security-Policy", csp);
   return response;
 }

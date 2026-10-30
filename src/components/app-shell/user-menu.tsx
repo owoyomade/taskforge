@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { LogOutIcon, UserIcon } from "lucide-react";
+import { useTheme } from "next-themes";
 
 import {
   DropdownMenu,
@@ -9,6 +10,8 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -16,8 +19,15 @@ import { UserAvatar } from "@/components/user-avatar";
 import { signOut } from "@/app/(auth)/actions";
 import type { ProfileView } from "@/lib/profiles";
 
+const APPEARANCE = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "system", label: "Match my computer" },
+];
+
 export function UserMenu({ profile }: { profile: ProfileView }) {
   const displayName = profile.fullName || profile.email;
+  const { theme, setTheme } = useTheme();
 
   return (
     <DropdownMenu>
@@ -25,7 +35,7 @@ export function UserMenu({ profile }: { profile: ProfileView }) {
         <UserAvatar name={profile.fullName} email={profile.email} avatarUrl={profile.avatarUrl} className="size-8" />
         <span className="min-w-0 flex-1">
           <span className="block truncate font-medium">{displayName}</span>
-          <span className="block truncate text-xs text-sidebar-foreground/60">{profile.email}</span>
+          <span className="block truncate text-xs text-sidebar-foreground/75">{profile.email}</span>
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" className="w-56">
@@ -38,6 +48,18 @@ export function UserMenu({ profile }: { profile: ProfileView }) {
           <UserIcon />
           Account settings
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Appearance</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={theme ?? "light"} onValueChange={(value: string) => setTheme(value)}>
+            {APPEARANCE.map((option) => (
+              <DropdownMenuRadioItem key={option.value} value={option.value}>
+                {option.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => signOut()}>
           <LogOutIcon />
           Sign out

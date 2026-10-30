@@ -81,10 +81,12 @@ test.describe("accessibility", () => {
   test.describe("signed in", () => {
     test.use({ storageState: async ({ aliceSession }, provide) => provide(aliceSession) });
 
-    for (const colorScheme of ["light", "dark"] as const) {
+    for (const theme of ["light", "dark"] as const) {
       for (const pagePath of SIGNED_IN_PAGES) {
-        test(`${colorScheme}: ${pagePath.replace(WEBSITE_PROJECT, "project")}`, async ({ page }) => {
-          await page.emulateMedia({ colorScheme });
+        test(`${theme}: ${pagePath.replace(WEBSITE_PROJECT, "project")}`, async ({ page }) => {
+          // The theme is the person's choice (user menu → Appearance), which
+          // next-themes keeps in localStorage under "theme".
+          await page.addInitScript((value) => localStorage.setItem("theme", value), theme);
           await page.goto(pagePath);
           await expectNoAccessibilityViolations(page);
         });
@@ -141,4 +143,14 @@ test("keyboard users can skip past the sidebar", async ({ page }) => {
   await expect(skip).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.locator("#main-content")).toBeFocused();
+});
+
+test("people can switch between light and dark from the user menu", async ({ page }) => {
+  await signIn(page, "alice@example.com");
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await page.getByRole("button", { name: /Alice Adeyemi/ }).click();
+  await page.getByRole("menuitemradio", { name: "Dark" }).click();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await page.reload();
+  await expect(page.locator("html")).toHaveClass(/dark/);
 });

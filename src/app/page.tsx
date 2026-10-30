@@ -46,12 +46,12 @@ export default async function HomePage() {
           </div>
         </div>
 
-        <div aria-hidden="true" className="grid grid-cols-3 gap-3 rounded-2xl bg-primary p-4 sm:p-6">
+        <div aria-hidden="true" className="grid grid-cols-3 gap-3 rounded-2xl bg-accent p-4 sm:p-6">
           {COLUMNS.map((column) => (
-            <div key={column.name} className="grid content-start gap-2 rounded-xl bg-primary-foreground/10 p-2 sm:p-3">
-              <p className="px-1 text-xs font-medium text-primary-foreground sm:text-sm">{column.name}</p>
+            <div key={column.name} className="grid content-start gap-2 rounded-xl bg-background/70 p-2 sm:p-3">
+              <p className="px-1 text-xs font-semibold text-accent-foreground sm:text-sm">{column.name}</p>
               {column.tasks.map((task) => (
-                <div key={task} className="rounded-lg bg-card px-2 py-2 text-xs text-card-foreground shadow-sm sm:px-3 sm:text-sm">
+                <div key={task} className="rounded-lg border bg-card px-2 py-2 text-xs text-card-foreground sm:px-3 sm:text-sm">
                   {task}
                 </div>
               ))}

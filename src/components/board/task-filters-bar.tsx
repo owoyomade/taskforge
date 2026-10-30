@@ -53,14 +53,14 @@ export function TaskFiltersBar({ people, labels, showSort = false, resultCount }
     <div className="grid gap-2">
       <form
         role="search"
-        className="flex flex-wrap items-end gap-2"
+        className="flex flex-wrap items-center gap-2"
         onSubmit={(event) => {
           event.preventDefault();
           clearTimeout(searchTimer.current);
           update("q", query.trim());
         }}
       >
-        <div className="relative min-w-48 flex-1 sm:max-w-xs">
+        <div className="relative min-w-40 flex-1 sm:max-w-60">
           <label htmlFor={ids.search} className="sr-only">
             Search tasks
           </label>
@@ -72,11 +72,11 @@ export function TaskFiltersBar({ people, labels, showSort = false, resultCount }
             onChange={(event) => handleQueryChange(event.target.value)}
             placeholder="Search tasks"
             maxLength={100}
-            className="h-10 pl-8"
+            className="h-9 pl-8"
           />
         </div>
         <FilterSelect id={ids.assignee} label="Assignee" value={searchParams.get("assignee")} onChange={(v) => update("assignee", v)}>
-          <option value="">Anyone</option>
+          <option value="">Any assignee</option>
           <option value="none">Unassigned</option>
           {people.map((person) => (
             <option key={person.id} value={person.id}>
@@ -101,7 +101,7 @@ export function TaskFiltersBar({ people, labels, showSort = false, resultCount }
           ))}
         </FilterSelect>
         <FilterSelect id={ids.due} label="Due date" value={searchParams.get("due")} onChange={(v) => update("due", v)}>
-          <option value="">Any date</option>
+          <option value="">Any due date</option>
           <option value="overdue">Overdue</option>
           <option value="week">Due in the next 7 days</option>
           <option value="none">No due date</option>
@@ -119,7 +119,7 @@ export function TaskFiltersBar({ people, labels, showSort = false, resultCount }
           <Button
             type="button"
             variant="ghost"
-            className="h-10"
+            className="h-9"
             onClick={() => {
               setQuery("");
               const next = new URLSearchParams(searchParams);
@@ -155,11 +155,14 @@ function FilterSelect({
   children: ReactNode;
 }) {
   return (
-    <div className="grid gap-1">
-      <label htmlFor={id} className="text-xs text-muted-foreground">
+    // The label is for screen readers only: each select's current value
+    // ("Any assignee", "Any priority") already says what it filters, which
+    // keeps every filter on one row above the board.
+    <div>
+      <label htmlFor={id} className="sr-only">
         {label}
       </label>
-      <NativeSelect id={id} value={value ?? ""} onChange={(event) => onChange(event.target.value)} className="min-w-36">
+      <NativeSelect id={id} value={value ?? ""} onChange={(event) => onChange(event.target.value)} className="h-9">
         {children}
       </NativeSelect>
     </div>
