@@ -1,13 +1,13 @@
 import { expect, test } from "@playwright/test";
 
 import { E2E_BASE_URL } from "../../playwright.config";
-import { signIn, signUpAndConfirm, uniqueEmail } from "./helpers";
+import { latestEmailLink, signIn, signUpAndConfirm, uniqueEmail } from "./helpers";
 
 // Uses the seed data from db/seed.sql (run `npm run db:reset` first).
 const PRICING_TASK = "/w/acme-studio/p/30000000-0000-4000-8000-000000000001?task=60000000-0000-4000-8000-000000000003";
 const ERIN_INVITE = "/invite/0123456789abcdef0123456789abcdef0123456789abcdef";
 
-test("an admin invites someone new, who signs up, accepts and can then be removed", async ({ page, browser }) => {
+test("an admin invites someone new by email, who signs up, accepts and can then be removed", async ({ page, browser }) => {
   test.slow(); // two accounts, sign-up email and several round trips
   const email = uniqueEmail("invitee");
 
@@ -15,8 +15,9 @@ test("an admin invites someone new, who signs up, accepts and can then be remove
   await page.goto("/w/acme-studio/settings");
   await page.getByLabel("Email address").fill(email);
   await page.getByLabel("Role", { exact: true }).selectOption("member");
-  await page.getByRole("button", { name: "Create invite link" }).click();
-  const link = await page.getByLabel("Invite link").inputValue();
+  await page.getByRole("button", { name: "Send invite" }).click();
+  await expect(page.getByText(`We've emailed an invitation to ${email}.`, { exact: false })).toBeVisible();
+  const link = await page.getByLabel("Invite link").inputValue(); // the copy-it-yourself fallback
   expect(link).toMatch(/\/invite\/[0-9a-f]{48}$/);
   await expect(page.getByText(email, { exact: true })).toBeVisible(); // in the open invitations list
 
@@ -24,6 +25,12 @@ test("an admin invites someone new, who signs up, accepts and can then be remove
   const invitee = await (await browser.newContext()).newPage();
   await signUpAndConfirm(invitee, "Ife Invitee", email, "welcome2026");
   await expect(invitee.getByText("You have an invitation")).toBeVisible();
+
+  // They follow the link in the invitation email, which is the same one Alice was shown.
+  const emailed = await latestEmailLink(email, "/invite/");
+  expect(new URL(emailed).pathname).toBe(new URL(link).pathname);
+  await invitee.goto(emailed);
+  await expect(invitee.getByRole("heading", { name: "Join Acme Studio" })).toBeVisible();
   await invitee.getByRole("button", { name: "Accept and join" }).click();
   await expect(invitee).toHaveURL(/\/w\/acme-studio$/);
   await expect(invitee.getByRole("link", { name: "Website relaunch" }).first()).toBeVisible();

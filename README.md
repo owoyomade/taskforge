@@ -76,10 +76,10 @@ New sign-ups get a confirmation email, which appears in Mailpit.
 
 ### Invitations
 
-Owners and admins invite people from workspace settings. Email delivery
-isn't set up yet, so the app shows an invite link to copy and send. The
-invited person also sees the invitation in the app once they sign in with
-that email address. Links expire after 7 days and only work for the invited
+Owners and admins invite people from workspace settings. The app emails
+the invitation (locally it lands in Mailpit) and also shows the link to copy,
+in case the email doesn't arrive. The invited person also sees the
+invitation in the app once they sign in with that email address. Links expire after 7 days and only work for the invited
 address.
 
 ## Scripts

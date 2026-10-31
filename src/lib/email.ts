@@ -2,6 +2,7 @@ import "server-only";
 
 import nodemailer from "nodemailer";
 
+import { ROLE_LABELS, type WorkspaceRole } from "@/lib/permissions";
 import { serverEnv } from "@/lib/server-env";
 
 // One shared connection setup. Port 465 means the connection is encrypted
@@ -80,3 +81,24 @@ export function resetPasswordMessage(to: string, url: string): Email {
     outro: "If that wasn't you, ignore this email and your password stays the same.",
   });
 }
+
+/**
+ * The workspace and inviter names are typed by users, so they only ever
+ * appear escaped (linkEmail escapes every field) and never as links.
+ */
+export function invitationMessage(to: string, workspaceName: string, inviterName: string, role: WorkspaceRole, url: string): Email {
+  // Collapse line breaks so a name can't add lines to the subject header.
+  const workspace = workspaceName.replace(/\s+/g, " ").trim();
+  const inviter = inviterName.replace(/\s+/g, " ").trim() || "A teammate";
+  return linkEmail({
+    to,
+    subject: `${inviter} invited you to ${workspace} on Taskforge`,
+    heading: `Join ${workspace} on Taskforge`,
+    intro: `${inviter} invited you to join ${workspace} as ${ROLE_ARTICLES[role]} ${ROLE_LABELS[role].toLowerCase()}. Sign in or create an account with this email address to accept.`,
+    linkText: "View the invitation",
+    url,
+    outro: "The link works for 7 days and only for this email address. If you weren't expecting it, you can ignore this email.",
+  });
+}
+
+const ROLE_ARTICLES: Record<WorkspaceRole, string> = { owner: "an", admin: "an", member: "a", viewer: "a" };

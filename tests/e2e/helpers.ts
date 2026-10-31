@@ -14,28 +14,41 @@ export function uniqueEmail(prefix: string): string {
 }
 
 /** Waits for the newest email sent to `to` and returns the first auth link in it. */
-export async function latestAuthLink(to: string): Promise<string> {
+export function latestAuthLink(to: string): Promise<string> {
+  // Confirmation and reset links both go through the sign-in library at /api/auth/.
+  return latestEmailLink(to, "/api/auth/");
+}
+
+/**
+ * Waits for an email to `to` with a link whose path starts with `pathPrefix`
+ * and returns that link from the newest such email. Other emails to the
+ * same address (a sign-up confirmation, say) are skipped.
+ */
+export async function latestEmailLink(to: string, pathPrefix: string): Promise<string> {
   let link: string | undefined;
 
   await expect
     .poll(
       async () => {
         const search = await fetch(`${MAILPIT_URL}/api/v1/search?query=${encodeURIComponent(`to:"${to}"`)}`);
-        const { messages } = (await search.json()) as { messages: { ID: string }[] };
-        if (!messages.length) return undefined;
+        const { messages } = (await search.json()) as { messages: { ID: string }[] }; // newest first
 
-        const message = await fetch(`${MAILPIT_URL}/api/v1/message/${messages[0].ID}`);
-        const { HTML } = (await message.json()) as { HTML: string };
-        // Confirmation and reset links both go through the sign-in library at /api/auth/.
-        const href = HTML.match(/href="([^"]*\/api\/auth\/[^"]*)"/)?.[1]?.replaceAll("&amp;", "&");
-        // Emails point at the Site URL (port 3000); send the test to its own server instead.
-        if (href) {
-          const emailed = new URL(href);
-          link = new URL(emailed.pathname + emailed.search, E2E_BASE_URL).toString();
+        for (const { ID } of messages) {
+          const message = await fetch(`${MAILPIT_URL}/api/v1/message/${ID}`);
+          const { HTML } = (await message.json()) as { HTML: string };
+          const href = [...HTML.matchAll(/href="([^"]*)"/g)]
+            .map((match) => match[1].replaceAll("&amp;", "&"))
+            .find((candidate) => URL.canParse(candidate) && new URL(candidate).pathname.startsWith(pathPrefix));
+          // Emails point at the Site URL (port 3000); send the test to its own server instead.
+          if (href) {
+            const emailed = new URL(href);
+            link = new URL(emailed.pathname + emailed.search, E2E_BASE_URL).toString();
+            break;
+          }
         }
         return link;
       },
-      { message: `waiting for an auth email to ${to}`, timeout: 15_000 },
+      { message: `waiting for an email to ${to} linking to ${pathPrefix}`, timeout: 15_000 },
     )
     .toBeTruthy();
 
