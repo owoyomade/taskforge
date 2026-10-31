@@ -19,6 +19,11 @@ test("Try the demo signs a visitor in to the sample workspace, with risky action
   await page.getByLabel("Role", { exact: true }).selectOption("member");
   await page.getByRole("button", { name: "Create invite link" }).click();
   await expect(page.getByText("That's turned off in the demo.")).toBeVisible();
+
+  // The banner's sign-up button ends the demo session instead of bouncing back to it.
+  await page.getByRole("button", { name: "Create your own free account" }).click();
+  await expect(page).toHaveURL(/\/sign-up$/);
+  await expect(page.getByRole("heading", { name: "Create your account" })).toBeVisible();
 });
 
 test("the demo account can't be signed in to with the normal form", async ({ page }) => {

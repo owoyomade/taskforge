@@ -1,5 +1,4 @@
-import Link from "next/link";
-
+import { leaveDemoToSignUp } from "@/app/(auth)/actions";
 import { AppSidebar } from "@/components/app-shell/app-sidebar";
 import { isDemoSession } from "@/lib/demo";
 import { countUnreadNotifications } from "@/lib/notifications";
@@ -48,9 +47,11 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
               You&apos;re exploring a shared demo. Anything you change resets every night, and uploads and invitations are
               turned off.
             </span>
-            <Link href="/sign-up" className="font-semibold underline underline-offset-4">
-              Create your own free account
-            </Link>
+            <form action={leaveDemoToSignUp}>
+              <button type="submit" className="cursor-pointer font-semibold underline underline-offset-4">
+                Create your own free account
+              </button>
+            </form>
           </p>
         ) : null}
         {children}

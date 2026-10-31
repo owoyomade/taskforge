@@ -115,6 +115,15 @@ export async function signOut(): Promise<void> {
 }
 
 /**
+ * "Create your own free account" in the demo banner. The sign-up page sends
+ * anyone signed in to their dashboard, so the demo session ends first.
+ */
+export async function leaveDemoToSignUp(): Promise<void> {
+  await auth.api.signOut({ headers: await headers() });
+  redirect("/sign-up");
+}
+
+/**
  * "Try the demo": signs the visitor in to the shared demo account. The
  * password never leaves the server. The first click on a new site builds
  * the demo workspace.
