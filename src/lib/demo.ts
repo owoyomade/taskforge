@@ -1,6 +1,6 @@
 import "server-only";
 
-import { hashPassword } from "better-auth/crypto";
+import { hashPassword, verifyPassword } from "better-auth/crypto";
 
 import { getCurrentUser } from "@/lib/auth";
 import { authPool } from "@/lib/better-auth";
@@ -193,11 +193,22 @@ export async function resetDemo(): Promise<void> {
   });
 }
 
-/** True once the demo workspace exists, so the first click on a fresh site sets it up. */
+/**
+ * True once the demo workspace exists and the account still has the current
+ * DEMO_PASSWORD, so the first click on a fresh site, or after the password
+ * was changed, sets it up again instead of failing to sign in.
+ */
 export async function demoIsReady(): Promise<boolean> {
-  const { rows } = await authPool.query<{ id: string }>("select id from auth.users where email = $1", [DEMO_EMAIL]);
+  const { rows } = await authPool.query<{ id: string; password: string | null }>(
+    `select u.id, a.password from auth.users u
+       left join auth.accounts a on a.user_id = u.id and a.provider_id = 'credential'
+      where u.email = $1`,
+    [DEMO_EMAIL],
+  );
   const demoId = rows[0]?.id;
-  if (!demoId) return false;
+  const hash = rows[0]?.password;
+  const password = process.env.DEMO_PASSWORD;
+  if (!demoId || !hash || !password || !(await verifyPassword({ hash, password }))) return false;
   const [workspace] = await withUser(demoId, (db) =>
     db.query<{ ready: boolean }>("select exists (select 1 from public.workspaces where slug = $1) as ready", [DEMO_SLUG]),
   );
