@@ -42,17 +42,19 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
       />
       <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 px-4 py-8 outline-none sm:px-8 lg:px-12">
         {isDemo ? (
-          <p className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-accent px-4 py-2.5 text-sm text-accent-foreground">
-            <span>
+          // A <div>, not a <p>: HTML doesn't allow a <form> inside a <p>, so the
+          // browser would split them apart and React's hydration would fail.
+          <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-accent px-4 py-2.5 text-sm text-accent-foreground">
+            <p>
               You&apos;re exploring a shared demo. Anything you change resets every night, and uploads and invitations are
               turned off.
-            </span>
+            </p>
             <form action={leaveDemoToSignUp}>
               <button type="submit" className="cursor-pointer font-semibold underline underline-offset-4">
                 Create your own free account
               </button>
             </form>
-          </p>
+          </div>
         ) : null}
         {children}
       </main>
