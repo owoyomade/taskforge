@@ -3,6 +3,7 @@ import "server-only";
 import { betterAuth } from "better-auth";
 import { nextCookies } from "better-auth/next-js";
 import { after } from "next/server";
+import { attachDatabasePool } from "@vercel/functions";
 import { Pool } from "pg";
 
 import { confirmEmailMessage, resetPasswordMessage, sendEmail } from "@/lib/email";
@@ -15,14 +16,13 @@ import { serverEnv } from "@/lib/server-env";
  * password hashes, sessions and one-time email links.
  *
  * It connects as taskforge_auth, which can reach those tables and nothing
- * else, so a mistake here can never read or change project data. The
- * search_path option makes its unqualified table names resolve in "auth".
+ * else, so a mistake here can never read or change project data. That
+ * login's default search_path is "auth" (set in db/migrations), so the
+ * library's unqualified table names resolve there.
  */
-export const authPool = new Pool({
-  connectionString: serverEnv.DATABASE_AUTH_URL,
-  options: "-c search_path=auth",
-  max: 3,
-});
+export const authPool = new Pool({ connectionString: serverEnv.DATABASE_AUTH_URL, max: 3 });
+// On Vercel, closes idle connections before a function is paused (no effect locally).
+attachDatabasePool(authPool);
 
 // The emailed links point at the site's public address. Locally the browser
 // tests run their own server on port 3100, so it's trusted too.

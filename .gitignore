@@ -60,3 +60,4 @@ Thumbs.db
 
 # files uploaded during local development
 /.data/
+.neon

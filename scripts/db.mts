@@ -26,7 +26,20 @@ const LOCAL_AUTH_URL = "postgres://taskforge_auth:taskforge_auth@127.0.0.1:5433/
 const MIGRATIONS_DIR = join(import.meta.dirname, "..", "db", "migrations");
 const SEED_FILE = join(import.meta.dirname, "..", "db", "seed.sql");
 
-const ownerUrl = process.env.DATABASE_OWNER_URL ?? LOCAL_OWNER_URL;
+/**
+ * Neon gives each database a pooled address (with "-pooler" in the host)
+ * for the app, and a direct one for maintenance. Migrations need the direct
+ * one, so a pooled owner URL is switched automatically.
+ */
+function directUrl(url: string): string {
+  const parsed = new URL(url);
+  if (parsed.hostname.endsWith(".neon.tech") && parsed.hostname.includes("-pooler.")) {
+    parsed.hostname = parsed.hostname.replace("-pooler.", ".");
+  }
+  return parsed.toString();
+}
+
+const ownerUrl = directUrl(process.env.DATABASE_OWNER_URL ?? LOCAL_OWNER_URL);
 
 function isLocal(url: string): boolean {
   const host = new URL(url).hostname;

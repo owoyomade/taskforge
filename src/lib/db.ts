@@ -1,5 +1,6 @@
 import "server-only";
 
+import { attachDatabasePool } from "@vercel/functions";
 import { Pool, TypeOverrides, type PoolClient, type QueryResultRow } from "pg";
 
 import { requireUser } from "@/lib/auth";
@@ -28,6 +29,9 @@ parsers.setTypeParser(TIMESTAMPTZ, (value: string) => new Date(value).toISOStrin
 parsers.setTypeParser(INT8, (value: string) => Number(value));
 
 const pool = new Pool({ connectionString: serverEnv.DATABASE_URL, max: 5, types: parsers });
+
+// On Vercel, closes idle connections before a function is paused (no effect locally).
+attachDatabasePool(pool);
 
 pool.on("error", (error) => {
   // An idle connection dropped (for example the database restarted); the pool replaces it.

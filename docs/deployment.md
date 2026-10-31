@@ -16,38 +16,52 @@ repository.
 ## 1. Create the Neon database
 
 1. Sign up at neon.com (signing in with GitHub is easiest) and create a
-   project. Pick the region closest to your users and **Postgres 17**, the
-   version the local database uses.
-2. On the project dashboard, click **Connect** and copy the connection
-   string. It looks like
-   `postgresql://neondb_owner:PASSWORD@ep-…-pooler.REGION.aws.neon.tech/neondb?sslmode=require`.
-   That's the **owner** login. Keep it in your password manager.
-3. Invent two strong passwords (20+ characters; a password manager can
-   generate them). They're for the two logins the app uses:
-   `taskforge_app` (the app) and `taskforge_auth` (the sign-in library).
-4. In this folder, create a file named `.env.production.local`. It's
-   git-ignored, so it stays on your computer. Put these lines in it, using
-   your own values:
+   project in the region closest to your users. Taskforge's own project uses
+   Postgres 18; the local Docker database is Postgres 17, and the
+   migrations work on both.
+2. Install Neon's command-line tool, sign in, and link this folder:
 
    ```bash
-   DATABASE_OWNER_URL=postgresql://neondb_owner:OWNER-PASSWORD@HOST/neondb?sslmode=require
-   DATABASE_URL=postgresql://taskforge_app:APP-PASSWORD@HOST/neondb?sslmode=require
-   DATABASE_AUTH_URL=postgresql://taskforge_auth:AUTH-PASSWORD@HOST/neondb?sslmode=require
+   npm i -g neon@latest
    ```
 
-   `HOST` is the same in all three lines: the part after `@` and before
-   `/neondb` in Neon's connection string.
-5. Set up the database: it creates every table, rule and function, then
+   ```bash
+   neon login
+   ```
+
+   ```bash
+   neon init -y --org-id YOUR-ORG-ID --project-id YOUR-PROJECT-ID --branch production --services postgres
+   ```
+
+   (Neon's console shows the exact `init` line for your project.)
+3. `neon deploy` pulls the database's connection strings into `.env.local`,
+   **overwriting the local `DATABASE_URL`**. Back up `.env.local` first, then
+   move Neon's values into a separate, git-ignored file named
+   `.env.neon.local` and restore your local ones. Don't call it
+   `.env.production.local`: Next.js loads that name automatically for
+   production builds, including the local test server, which would point
+   your tests at the live database. The file needs three lines:
+
+   ```bash
+   DATABASE_OWNER_URL=<Neon's DATABASE_URL_UNPOOLED (direct, for migrations)>
+   DATABASE_URL=<the pooled address, with the user taskforge_app and a new 32-character password>
+   DATABASE_AUTH_URL=<the pooled address, with the user taskforge_auth and another new password>
+   ```
+
+   Use `sslmode=verify-full` in all three, which checks Neon's certificate
+   fully. The owner login is only for setup; never deploy it.
+4. Set up the database: it creates every table, rule and function, then
    lets the two logins sign in with your passwords. Demo data is **not**
    loaded. The demo accounts and their shared password must never exist in
-   production.
+   production. The script switches a pooled owner address to the direct one
+   by itself, as Neon recommends for migrations.
 
    ```bash
-   node --env-file=.env.production.local scripts/db.mts migrate
+   node --env-file=.env.neon.local scripts/db.mts migrate
    ```
 
    ```bash
-   node --env-file=.env.production.local scripts/db.mts roles
+   node --env-file=.env.neon.local scripts/db.mts roles
    ```
 
 ## 2. Prepare Gmail for sending
@@ -146,7 +160,7 @@ standard Postgres tools (`brew install postgresql@17` provides them):
 mkdir -p backups && pg_dump --no-owner --format=custom --file=backups/taskforge-$(date +%F).dump "$DATABASE_OWNER_URL"
 ```
 
-Run it with the owner URL from `.env.production.local`. `backups/` is
+Run it with the owner URL from `.env.neon.local`. `backups/` is
 git-ignored. Backups contain everyone's data, including email addresses,
 so keep them private and encrypted, and delete old ones you don't need.
 
@@ -158,10 +172,10 @@ pg_restore --no-owner --dbname="NEW-OWNER-URL" backups/taskforge-YYYY-MM-DD.dump
 ```
 
 ```bash
-node --env-file=.env.production.local scripts/db.mts roles
+node --env-file=.env.neon.local scripts/db.mts roles
 ```
 
-(After editing the three URLs in `.env.production.local` to the new
+(After editing the three URLs in `.env.neon.local` to the new
 project.) Uploaded files live in Vercel Blob, not in the dump.
 
 ## Shipping changes
@@ -171,7 +185,7 @@ For each change:
 1. Locally: `npm run check`, `npm run test:db` and `npm run test:e2e:fresh`.
    All must pass.
 2. If there's a new migration: take a backup, then
-   `node --env-file=.env.production.local scripts/db.mts migrate`.
+   `node --env-file=.env.neon.local scripts/db.mts migrate`.
 3. Push to GitHub. Vercel builds and deploys `main` automatically.
 4. Check `/api/health` and the flow you changed.
 

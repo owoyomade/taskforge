@@ -39,8 +39,13 @@ export default defineConfig({
   webServer: {
     command: "npm run build && npx next start --port 3100",
     url: E2E_BASE_URL,
-    // The suite signs in many times from one address; raise (not remove) the per-address limits.
-    env: { AUTH_IP_LIMIT_MULTIPLIER: "20" },
+    env: {
+      // The suite signs in many times from one address; raise (not remove) the per-address limits.
+      AUTH_IP_LIMIT_MULTIPLIER: "20",
+      // Emailed links and sign-in redirects point at the test server itself,
+      // so the tests never depend on a dev server running on port 3000.
+      NEXT_PUBLIC_SITE_URL: E2E_BASE_URL,
+    },
     // Always a fresh build: reusing a server left running from an earlier
     // run would quietly test old code.
     reuseExistingServer: false,
