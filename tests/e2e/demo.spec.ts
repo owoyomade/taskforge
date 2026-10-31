@@ -17,7 +17,7 @@ test("Try the demo signs a visitor in to the sample workspace, with risky action
   await page.goto("/w/demo-studio/settings");
   await page.getByLabel("Email address").fill("someone@example.com");
   await page.getByLabel("Role", { exact: true }).selectOption("member");
-  await page.getByRole("button", { name: "Create invite link" }).click();
+  await page.getByRole("button", { name: "Send invite" }).click();
   await expect(page.getByText("That's turned off in the demo.")).toBeVisible();
 
   // The banner's sign-up button ends the demo session instead of bouncing back to it.

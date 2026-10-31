@@ -197,7 +197,7 @@ export function InviteForm({ workspaceId }: { workspaceId: string }) {
           </NativeSelect>
         </div>
         <Button type="submit" className="h-10" disabled={isPending}>
-          {isPending ? "Creating…" : "Create invite link"}
+          {isPending ? "Sending…" : "Send invite"}
         </Button>
       </form>
       {state.status === "error" ? <FormMessage state={state} /> : null}
@@ -227,7 +227,7 @@ export function InviteForm({ workspaceId }: { workspaceId: string }) {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Email delivery isn&apos;t set up yet, so send this link yourself. They&apos;ll also see the invitation when
+            If the email doesn&apos;t arrive, send them this link yourself. They&apos;ll also see the invitation when
             they sign in with that address.
           </p>
         </div>

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
@@ -9,6 +10,7 @@ import { toUserMessage } from "@/lib/db-errors";
 import { publicEnv } from "@/lib/env";
 import { attemptAsCurrentUser } from "@/lib/db";
 import { DEMO_BLOCKED, isDemoSession } from "@/lib/demo";
+import { invitationMessage, sendEmail } from "@/lib/email";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { can, grantableRoles, INVITABLE_ROLES } from "@/lib/permissions";
 import { NO_PERMISSION, type ActionResult } from "@/lib/project-access";
@@ -22,7 +24,7 @@ const inviteSchema = z.object({
   role: z.enum(INVITABLE_ROLES),
 });
 
-/** The invite form's result: on success it carries the link to share. */
+/** The invite form's result: on success it carries the link, in case the email doesn't arrive. */
 export type InviteState = FormState | { status: "invited"; message: string; link: string };
 
 function refreshWorkspace() {
@@ -44,23 +46,33 @@ export async function inviteMember(_previous: InviteState, formData: FormData): 
     return { status: "error", message: "Only owners and admins can invite people.", values };
   }
 
-  const result = await attemptAsCurrentUser((db) =>
-    db.query<{ invitation_id: string; token: string }>("select invitation_id, token from public.create_invitation($1, $2, $3)", [
-      workspace.id,
-      parsed.data.email,
-      parsed.data.role,
-    ]),
-  );
-  const created = result.ok ? result.value[0] : undefined;
+  const result = await attemptAsCurrentUser(async (db) => {
+    const [created] = await db.query<{ invitation_id: string; token: string }>(
+      "select invitation_id, token from public.create_invitation($1, $2, $3)",
+      [workspace.id, parsed.data.email, parsed.data.role],
+    );
+    // The inviter's name for the email; RLS always lets people read their own profile.
+    const [inviter] = await db.query<{ full_name: string; email: string }>(
+      "select full_name, email from public.profiles where id = (select auth.uid())",
+    );
+    return { created, inviterName: inviter?.full_name || inviter?.email || "" };
+  });
+  const created = result.ok ? result.value.created : undefined;
   if (!result.ok || !created) {
     return { status: "error", message: result.ok ? "Could not create the invitation." : toUserMessage(result.error, "inviteMember"), values };
   }
 
+  const link = `${publicEnv.NEXT_PUBLIC_SITE_URL}/invite/${created.token}`;
+  // Sent after the response, like the sign-in emails, so a slow or failed
+  // send never holds up or breaks the form. sendEmail logs failures without
+  // the address, link or content.
+  after(() => sendEmail(invitationMessage(parsed.data.email, workspace.name, result.value.inviterName, parsed.data.role, link)));
+
   refreshWorkspace();
   return {
     status: "invited",
-    message: `Invitation created for ${parsed.data.email}. Send them this link; it works for 7 days and only for that email address.`,
-    link: `${publicEnv.NEXT_PUBLIC_SITE_URL}/invite/${created.token}`,
+    message: `We've emailed an invitation to ${parsed.data.email}. It works for 7 days and only for that email address.`,
+    link,
   };
 }
 
