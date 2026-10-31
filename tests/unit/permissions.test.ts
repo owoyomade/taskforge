@@ -13,6 +13,7 @@ import {
 // to be made deliberately in two places. It must also match the RLS policies.
 const EXPECTED: Record<WorkspaceCapability, WorkspaceRole[]> = {
   renameWorkspace: ["owner", "admin"],
+  setCapacity: ["owner", "admin"],
   deleteWorkspace: ["owner"],
   manageMembers: ["owner", "admin"],
   manageOwners: ["owner"],

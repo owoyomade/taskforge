@@ -61,6 +61,7 @@ const SIGNED_IN_PAGES = [
   "/w/acme-studio",
   "/w/acme-studio/inbox",
   "/w/acme-studio/activity",
+  "/w/acme-studio/radar",
   "/w/acme-studio/settings",
   "/w/acme-studio/projects/new",
   "/account",

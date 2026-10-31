@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ActivityIcon, HomeIcon, InboxIcon, MenuIcon, PlusIcon, SettingsIcon } from "lucide-react";
+import { ActivityIcon, GaugeIcon, HomeIcon, InboxIcon, MenuIcon, PlusIcon, SettingsIcon } from "lucide-react";
 
 import { Brand } from "@/components/brand";
 import { ColorDot } from "@/components/color-picker";
@@ -62,6 +62,7 @@ function SidebarContents({ workspace, workspaces, profile, projects, unreadCount
   const links = [
     { href: base, label: "Home", icon: HomeIcon },
     { href: `${base}/inbox`, label: "Inbox", icon: InboxIcon, badge: unreadCount },
+    { href: `${base}/radar`, label: "Workload radar", icon: GaugeIcon },
     { href: `${base}/activity`, label: "Activity", icon: ActivityIcon },
     { href: `${base}/settings`, label: "Team and settings", icon: SettingsIcon },
   ];

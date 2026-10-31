@@ -11,7 +11,7 @@ import { DEMO_BLOCKED, isDemoSession } from "@/lib/demo";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { can, type WorkspaceCapability } from "@/lib/permissions";
 import { workspaceSlug } from "@/lib/slug";
-import { workspaceNameSchema } from "@/lib/validation";
+import { weeklyCapacitySchema, workspaceNameSchema } from "@/lib/validation";
 import { listMyWorkspaces } from "@/lib/workspaces";
 
 export async function createWorkspace(_previous: FormState, formData: FormData): Promise<FormState> {
@@ -83,6 +83,35 @@ export async function renameWorkspace(_previous: FormState, formData: FormData):
 
   revalidatePath(`/w/${auth.workspace.slug}`, "layout");
   return { status: "success", message: "Workspace renamed." };
+}
+
+export async function setWeeklyCapacity(_previous: FormState, formData: FormData): Promise<FormState> {
+  const values = { capacity: textField(formData, "capacity") };
+  const parsed = weeklyCapacitySchema.safeParse(values);
+  if (!parsed.success) {
+    return validationError(parsed.error, values);
+  }
+
+  const auth = await authorizeWorkspaceAction(formData, "setCapacity");
+  if (!auth.ok) {
+    return { status: "error", message: auth.message, values };
+  }
+
+  const result = await attemptAsCurrentUser((db) =>
+    db.query("update public.workspaces set weekly_capacity = $2 where id = $1 returning id", [
+      auth.workspace.id,
+      parsed.data.capacity,
+    ]),
+  );
+  if (!result.ok) {
+    return { status: "error", message: toUserMessage(result.error, "setWeeklyCapacity"), values };
+  }
+  if (result.value.length === 0) {
+    return { status: "error", message: "You don't have permission to do that.", values };
+  }
+
+  revalidatePath(`/w/${auth.workspace.slug}`, "layout");
+  return { status: "success", message: "Capacity saved." };
 }
 
 export async function deleteWorkspace(_previous: FormState, formData: FormData): Promise<FormState> {

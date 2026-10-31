@@ -54,6 +54,14 @@ export const getWorkspaceForUser = cache(async (slug: string): Promise<Workspace
   return workspace;
 });
 
+/** The workload radar's capacity (open tasks per person per week). */
+export async function getWeeklyCapacity(workspaceId: string): Promise<number> {
+  const [row] = await asCurrentUser((db) =>
+    db.query<{ weekly_capacity: number }>("select weekly_capacity from public.workspaces where id = $1", [workspaceId]),
+  );
+  return row?.weekly_capacity ?? 5;
+}
+
 const ROLE_ORDER: Record<WorkspaceRole, number> = { owner: 0, admin: 1, member: 2, viewer: 3 };
 
 // Cached per request: the board, the task drawer, comments and attachments all need it.

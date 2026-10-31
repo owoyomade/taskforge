@@ -7,6 +7,7 @@ import { authPool } from "@/lib/better-auth";
 import { addDays } from "@/lib/dates";
 import { withUser, type Db } from "@/lib/db";
 import { findTemplate } from "@/lib/templates/library";
+import { weekStart } from "@/lib/workload";
 
 /**
  * The public demo behind the "Try the demo" button.
@@ -172,6 +173,8 @@ export async function resetDemo(): Promise<void> {
     }
   });
 
+  await withUser(demoId, (db) => createCrunch(db, teammateIds[0], teammateIds[1], projectIds[0], today));
+
   // A teammate's comment mentioning the demo user puts something in the inbox.
   await withUser(teammateIds[0], async (db) => {
     const [task] = await db.query<{ id: string; project_id: string; workspace_id: string }>(
@@ -191,6 +194,53 @@ export async function resetDemo(): Promise<void> {
       demoId,
     ]);
   });
+}
+
+/**
+ * Gives the workload radar something real to show: next week, Sam has more
+ * open tasks due than the default capacity of 5, and one task due in two
+ * days has nobody on it. Everything else keeps its template dates.
+ */
+async function createCrunch(db: Db, samId: string, priyaId: string, projectId: string, today: string): Promise<void> {
+  const nextMonday = addDays(weekStart(today), 7);
+  const samsTasks = await db.query<{ id: string }>(
+    `select t.id from public.task_assignees a
+     join public.tasks t on t.id = a.task_id
+     join public.board_columns c on c.id = t.column_id
+     where a.user_id = $1 and t.parent_task_id is null and not c.is_done
+     order by t.due_date nulls last, t.position
+     limit 7`,
+    [samId],
+  );
+  for (const [index, task] of samsTasks.entries()) {
+    // Monday to Friday. A start date after the new due date is cleared, so the
+    // "due on or after start" rule still holds.
+    const due = addDays(nextMonday, index % 5);
+    await db.query(
+      "update public.tasks set due_date = $2, start_date = case when start_date > $2 then null else start_date end where id = $1",
+      [task.id, due],
+    );
+  }
+
+  // Every open demo task starts with someone on it, so one of Priya's last
+  // tasks in the first project is handed back to nobody.
+  const [loose] = await db.query<{ id: string }>(
+    `select t.id from public.task_assignees a
+     join public.tasks t on t.id = a.task_id
+     join public.board_columns c on c.id = t.column_id
+     where a.user_id = $2 and t.project_id = $1 and t.parent_task_id is null and not c.is_done
+     order by t.position desc
+     limit 1`,
+    [projectId, priyaId],
+  );
+  if (loose) {
+    const due = addDays(today, 2);
+    await db.query("delete from public.task_assignees where task_id = $1", [loose.id]);
+    await db.query(
+      "update public.tasks set due_date = $2, start_date = case when start_date > $2 then null else start_date end where id = $1",
+      [loose.id, due],
+    );
+  }
 }
 
 /**

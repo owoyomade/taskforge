@@ -9,6 +9,7 @@ import { toUserMessage } from "@/lib/db-errors";
 import { textField, validationError, type FormState } from "@/lib/form-state";
 import { evenPositions, needsRebalance, positionBetween } from "@/lib/ordering";
 import { hasProjectAccess, NO_PERMISSION, type ActionResult } from "@/lib/project-access";
+import { getProjectForUser, listAssignablePeople } from "@/lib/projects";
 import { checklistItemSchema, taskTitleSchema, taskUpdateSchema } from "@/lib/validation";
 
 const idSchema = z.uuid();
@@ -237,6 +238,40 @@ export async function setTaskAssignee(taskId: string, userId: string, assigned: 
     const message = result.error.code === "23503" ? "Only workspace members can be assigned." : toUserMessage(result.error, "setTaskAssignee");
     return { ok: false, message };
   }
+  refreshWorkspace();
+  return { ok: true };
+}
+
+/**
+ * The radar's one-click fix: hands a task from an overloaded person (or
+ * from nobody) to someone with room. Removing and adding happen in one
+ * transaction, so the task is never left half-moved.
+ */
+export async function reassignTask(taskId: string, fromUserId: string | null, toUserId: string): Promise<ActionResult> {
+  if (!ids(taskId, toUserId) || (fromUserId !== null && !ids(fromUserId))) return NO_PERMISSION;
+  const task = await loadTask(taskId);
+  if (!task) return { ok: false, message: "That task no longer exists." };
+  if (!(await hasProjectAccess(task.project_id, "edit"))) return NO_PERMISSION;
+
+  // The same rule as the task drawer's assignee list: no viewers, and only
+  // people who can see a private project.
+  const project = await getProjectForUser(task.workspace_id, task.project_id);
+  const assignable = await listAssignablePeople(project);
+  if (!assignable.some((person) => person.id === toUserId)) {
+    return { ok: false, message: "That person can't be assigned to this project's tasks." };
+  }
+
+  const result = await attemptAsCurrentUser(async (db) => {
+    if (fromUserId) {
+      await db.query("delete from public.task_assignees where task_id = $1 and user_id = $2", [taskId, fromUserId]);
+    }
+    await db.query(
+      `insert into public.task_assignees (task_id, project_id, workspace_id, user_id) values ($1, $2, $3, $4)
+       on conflict (task_id, user_id) do nothing`,
+      [taskId, task.project_id, task.workspace_id, toUserId],
+    );
+  });
+  if (!result.ok) return { ok: false, message: toUserMessage(result.error, "reassignTask") };
   refreshWorkspace();
   return { ok: true };
 }

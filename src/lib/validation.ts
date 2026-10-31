@@ -59,6 +59,15 @@ export const workspaceNameSchema = z.object({
   name: z.string().trim().min(2, "Use at least 2 characters.").max(60, "Use 60 characters or fewer."),
 });
 
+// The workload radar's capacity: open tasks one person can have due in a week.
+export const weeklyCapacitySchema = z.object({
+  capacity: z.coerce
+    .number("Enter a whole number.")
+    .int("Enter a whole number.")
+    .min(1, "Use at least 1.")
+    .max(50, "Use 50 or fewer."),
+});
+
 export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------

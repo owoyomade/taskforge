@@ -7,8 +7,8 @@ import { requireUser } from "@/lib/auth";
 import { listOpenInvitations } from "@/lib/invitations";
 import { can } from "@/lib/permissions";
 import { listLabels, listSavedTemplates } from "@/lib/projects";
-import { getWorkspaceForUser, listWorkspaceMembers } from "@/lib/workspaces";
-import { DeleteWorkspaceDialog, RenameWorkspaceForm } from "./settings-forms";
+import { getWeeklyCapacity, getWorkspaceForUser, listWorkspaceMembers } from "@/lib/workspaces";
+import { CapacityForm, DeleteWorkspaceDialog, RenameWorkspaceForm } from "./settings-forms";
 
 export const metadata: Metadata = { title: "Workspace settings" };
 
@@ -16,12 +16,13 @@ export default async function WorkspaceSettingsPage({ params }: PageProps<"/w/[s
   const { slug } = await params;
   const workspace = await getWorkspaceForUser(slug);
   const canManageMembers = can(workspace.role, "manageMembers");
-  const [user, members, labels, invitations, savedTemplates] = await Promise.all([
+  const [user, members, labels, invitations, savedTemplates, capacity] = await Promise.all([
     requireUser(),
     listWorkspaceMembers(workspace.id),
     listLabels(workspace.id),
     canManageMembers ? listOpenInvitations(workspace.id) : Promise.resolve([]),
     listSavedTemplates(workspace.id),
+    getWeeklyCapacity(workspace.id),
   ]);
 
   return (
@@ -39,6 +40,26 @@ export default async function WorkspaceSettingsPage({ params }: PageProps<"/w/[s
             <p className="font-medium">Workspace name</p>
             <p>{workspace.name}</p>
             <p className="text-muted-foreground">Only owners and admins can rename the workspace.</p>
+          </div>
+        )}
+      </section>
+
+      <section id="capacity" aria-labelledby="capacity-heading" className="grid scroll-mt-6 gap-4 border-t pt-6">
+        <div className="grid gap-1">
+          <h2 id="capacity-heading" className="text-lg font-semibold">
+            Workload capacity
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            How many open tasks one person can reasonably have due in a week. The workload radar uses it to spot who
+            has too much on.
+          </p>
+        </div>
+        {can(workspace.role, "setCapacity") ? (
+          <CapacityForm workspace={workspace} capacity={capacity} />
+        ) : (
+          <div className="grid gap-1 text-sm">
+            <p className="font-medium">{capacity} tasks per person per week</p>
+            <p className="text-muted-foreground">Only owners and admins can change it.</p>
           </div>
         )}
       </section>

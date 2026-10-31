@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { initialFormState } from "@/lib/form-state";
 import type { WorkspaceSummary } from "@/lib/workspaces";
-import { deleteWorkspace, renameWorkspace } from "../../../workspace-actions";
+import { deleteWorkspace, renameWorkspace, setWeeklyCapacity } from "../../../workspace-actions";
 
 export function RenameWorkspaceForm({ workspace }: { workspace: WorkspaceSummary }) {
   const [state, formAction, isPending] = useActionState(renameWorkspace, initialFormState);
@@ -43,6 +43,39 @@ export function RenameWorkspaceForm({ workspace }: { workspace: WorkspaceSummary
       />
       <Button type="submit" className="justify-self-start" disabled={isPending}>
         {isPending ? "Saving…" : "Save name"}
+      </Button>
+    </form>
+  );
+}
+
+export function CapacityForm({ workspace, capacity }: { workspace: WorkspaceSummary; capacity: number }) {
+  const [state, formAction, isPending] = useActionState(setWeeklyCapacity, initialFormState);
+
+  useEffect(() => {
+    if (state.status === "success") {
+      toast.success(state.message);
+    }
+  }, [state]);
+
+  return (
+    <form action={formAction} className="grid max-w-md gap-4" noValidate>
+      {state.status === "error" && !state.fieldErrors ? <FormMessage state={state} /> : null}
+      <input type="hidden" name="workspaceId" value={workspace.id} />
+      <FormField
+        label="Tasks per person per week"
+        name="capacity"
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={50}
+        required
+        className="max-w-28"
+        hint="The workload radar marks anyone with more open tasks due in a week than this."
+        defaultValue={previousValue(state, "capacity") ?? String(capacity)}
+        errors={fieldErrors(state, "capacity")}
+      />
+      <Button type="submit" className="justify-self-start" disabled={isPending}>
+        {isPending ? "Saving…" : "Save capacity"}
       </Button>
     </form>
   );

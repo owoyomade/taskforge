@@ -20,6 +20,7 @@ export const ROLE_LABELS: Record<WorkspaceRole, string> = {
  */
 const CAPABILITIES = {
   renameWorkspace: ["owner", "admin"],
+  setCapacity: ["owner", "admin"],
   deleteWorkspace: ["owner"],
   manageMembers: ["owner", "admin"],
   manageOwners: ["owner"],
